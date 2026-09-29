@@ -26,6 +26,7 @@ final class LawBook {
     private final Map<String, Rule> active = new LinkedHashMap<>(DEFAULTS);
     private final Map<String, Scheduled> pending = new LinkedHashMap<>();
     private long version;
+    private boolean adjustedUnsafeRules;
     private String planTitle = "守护世界稳定";
     private String planGoal = "巡查风险、保护玩家与世界，并保留每次裁决的证据。";
 
@@ -50,7 +51,11 @@ final class LawBook {
                     Integer.parseInt(data.getProperty(prefix + "window")),
                     Integer.parseInt(data.getProperty(prefix + "ban")),
                     Long.parseLong(data.getProperty(prefix + "version"))));
-                validateRule(signal, active.get(signal));
+                try { validateRule(signal, active.get(signal)); }
+                catch (IllegalArgumentException unsafe) {
+                    active.put(signal, DEFAULTS.get(signal));
+                    adjustedUnsafeRules = true;
+                }
                 if (data.containsKey(prefix + "pending.limit")) pending.put(signal, new Scheduled(new Rule(
                     Integer.parseInt(data.getProperty(prefix + "pending.limit")),
                     Integer.parseInt(data.getProperty(prefix + "pending.window")),
@@ -58,14 +63,31 @@ final class LawBook {
                     Long.parseLong(data.getProperty(prefix + "pending.version"))),
                     Long.parseLong(data.getProperty(prefix + "pending.at")),
                     data.getProperty(prefix + "pending.reason", "")));
-                if (pending.containsKey(signal)) validateRule(signal, pending.get(signal).rule);
+                if (pending.containsKey(signal)) {
+                    try { validateRule(signal, pending.get(signal).rule); }
+                    catch (IllegalArgumentException unsafe) {
+                        pending.remove(signal);
+                        adjustedUnsafeRules = true;
+                    }
+                }
             }
         } catch (Exception invalid) {
             throw new IllegalStateException("法令文件损坏；请先从备份恢复 " + file, invalid);
         }
+        if (adjustedUnsafeRules) {
+            Path backup = file.resolveSibling("laws.pre-v0.3.0.properties");
+            try {
+                if (!Files.exists(backup)) Files.copy(file, backup);
+                save();
+            } catch (Exception failure) {
+                throw new IllegalStateException("旧法令安全迁移失败；请检查 " + file, failure);
+            }
+        }
     }
 
     Rule rule(String signal) { return active.get(signal); }
+
+    boolean adjustedUnsafeRules() { return adjustedUnsafeRules; }
 
     String summary() {
         StringBuilder out = new StringBuilder("神圣规划版本 " + version + "：" + planTitle + "；" + planGoal);
@@ -102,16 +124,17 @@ final class LawBook {
     }
 
     private static void validateRule(String signal, Rule rule) {
-        int minimum = switch (signal) {
-            case "place" -> 120;
-            case "break" -> 180;
-            case "tnt" -> 8;
-            case "spawn-egg" -> 16;
-            default -> 30;
+        int minimumPerMinute = switch (signal) {
+            case "place" -> 300;
+            case "break" -> 450;
+            case "tnt" -> 32;
+            case "spawn-egg" -> 64;
+            default -> 120;
         };
+        long minimum = (minimumPerMinute * (long) rule.windowSeconds + 59) / 60;
         if (rule.limit < minimum || rule.limit > 10_000 || rule.windowSeconds < 10
             || rule.windowSeconds > 3_600 || rule.banMinutes < 1 || rule.banMinutes > 1_440)
-            throw new IllegalArgumentException("法令超出可执行范围");
+            throw new IllegalArgumentException("法令超出可执行范围或高频阈值过低");
     }
 
     void validatePlan(JsonObject action) {

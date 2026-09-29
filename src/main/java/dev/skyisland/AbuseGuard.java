@@ -15,12 +15,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -92,6 +94,7 @@ final class AbuseGuard implements Listener, AutoCloseable {
         Player p = event.getPlayer();
         if (p.hasPermission("skyisland.admin")) return;
         if (event.getHand() != EquipmentSlot.HAND) return;
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
         ItemStack item = event.getItem();
         if (item != null && item.getType().name().endsWith("_SPAWN_EGG")
             && hit(p, "spawn-egg", p.getLocation().toVector().toString())) event.setCancelled(true);
@@ -116,6 +119,10 @@ final class AbuseGuard implements Listener, AutoCloseable {
         long now = System.currentTimeMillis();
         String key = player.getUniqueId() + ":" + signal;
         int count = windows.computeIfAbsent(key, ignored -> new WindowCounter()).add(now, windowMillis);
+        if (count == Math.max(1, limit * 3 / 4)) {
+            player.sendMessage(ChatColor.GOLD + "天空岛预警：你的 " + signal + " 操作接近当前防护阈值，请减缓频率。");
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 1.0f);
+        }
         if (count <= limit) return false;
         if (count == limit + 1) enforce(player, signal, count, windowMillis, location, rule);
         return true;

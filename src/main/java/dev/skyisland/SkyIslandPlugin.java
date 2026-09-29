@@ -19,6 +19,7 @@ import java.util.concurrent.Executors;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -29,6 +30,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -37,6 +40,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor, TabCompleter, Listener {
     private static final String TITLE = ChatColor.DARK_PURPLE + "天空岛体系 · 天理议事厅";
     private final Map<AgentRole, String> replies = new HashMap<>();
+    private final Map<UUID, String> recentDeaths = new HashMap<>();
     private final Map<String, Pending> pending = new HashMap<>();
     private final Deque<String> recentAudit = new ArrayDeque<>();
     private final ExecutorService auditIo = Executors.newSingleThreadExecutor();
@@ -47,6 +51,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     private ShadowDiscipline discipline;
     private boolean paused;
     private String gatewayState = "未验证";
+    private String gatewayDetail = "";
     private String alert = "正常";
     private long lastIncidentReview;
 
@@ -66,6 +71,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         if (!client.configured()) gatewayState = "未配置";
         actions = new WorldActions(this);
         laws = new LawBook(getDataFolder().toPath());
+        if (laws.adjustedUnsafeRules()) getLogger().warning("旧法令的高频阈值过低，已备份原文件并恢复安全默认值");
         discipline = new ShadowDiscipline(getDataFolder().toPath());
         guard = new AbuseGuard(this, laws);
         Bukkit.getPluginManager().registerEvents(this, this);
@@ -76,7 +82,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         Bukkit.getScheduler().runTaskTimer(this, this::review, 20 * 60, period);
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             if (!paused) {
-                try { laws.activateDue(message -> Bukkit.broadcastMessage(ChatColor.GOLD + message), this::audit); }
+                try { laws.activateDue(message -> announce(message, "法令已生效"), this::audit); }
                 catch (RuntimeException failure) { getLogger().severe("法令生效失败: " + failure.getMessage()); }
             }
         }, 20 * 20, 20 * 20);
@@ -95,6 +101,10 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         long disk = getDataFolder().getUsableSpace();
         alert = tps < 18 || disk < 5_000_000_000L ? "需要检查：TPS 或磁盘空间" : "正常";
         if (paused || !client.configured()) return;
+        if (gatewayState.equals("请求失败")) {
+            ask(AgentRole.PHANES, "连接恢复检查。只返回一句简短状态，不提出动作。", null);
+            return;
+        }
         String metrics = metrics() + "\n" + laws.summary() + "\n" + guard.riskSummary();
         for (AgentRole role : AgentRole.values())
             ask(role, "定期巡查。只根据这些聚合指标诊断你的领域；没有必要动作时 action 为 null。\n" + metrics, null);
@@ -111,6 +121,14 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             .append(": chunks=").append(world.getLoadedChunks().length)
             .append(", entities=").append(world.getEntityCount()).append('\n');
         return out.toString();
+    }
+
+    private void announce(String message, String subtitle) {
+        Bukkit.broadcastMessage(ChatColor.GOLD + message);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.sendTitle("§d天理 · 法涅斯", "§6" + subtitle, 10, 60, 15);
+            player.playSound(player.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 0.55f, 1.0f);
+        }
     }
 
     void reviewIncident(String signal, String evidence) {
@@ -137,17 +155,51 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             Bukkit.getScheduler().runTask(this, () -> {
                 if (error != null) {
                     gatewayState = "请求失败";
-                    String failure = "OpenClaw 请求失败: " + error.getClass().getSimpleName();
+                    Throwable cause = error instanceof java.util.concurrent.CompletionException && error.getCause() != null
+                        ? error.getCause() : error;
+                    String reason = cause instanceof java.net.ConnectException ? "连接被拒绝；检查专用 Gateway 是否在配置的回环端口运行"
+                        : cause instanceof java.net.http.HttpTimeoutException ? "请求超时；检查 Gateway 与模型连接"
+                        : cause instanceof IllegalStateException ? cause.getMessage()
+                        : cause.getClass().getSimpleName() + "；检查专用实例日志";
+                    String failure = "OpenClaw 请求失败: " + reason;
                     replies.put(role, failure);
+                    gatewayDetail = reason;
+                    getLogger().warning(role.id + " " + failure);
                     if (sender != null) sender.sendMessage(ChatColor.RED + failure);
                     return;
                 }
-                replies.put(role, reply.message());
+                String message = reply.message().replace('\n', ' ').replace('\r', ' ');
+                if (message.length() > 300) message = message.substring(0, 300) + "…";
+                replies.put(role, message);
                 gatewayState = "已响应";
-                if (sender != null) sender.sendMessage(ChatColor.LIGHT_PURPLE + role.display + ": " + reply.message());
+                gatewayDetail = "";
+                if (sender != null) sender.sendMessage(ChatColor.LIGHT_PURPLE + role.display + ": " + message);
                 handleReply(role, reply);
             });
         });
+    }
+
+    @EventHandler public void death(org.bukkit.event.entity.PlayerDeathEvent event) {
+        Player player = event.getEntity();
+        String cause = player.getLastDamageCause() == null ? "未知" : player.getLastDamageCause().getCause().name();
+        recentDeaths.put(player.getUniqueId(), cause);
+        audit("player-death uuid=" + player.getUniqueId() + " cause=" + cause + " world=" + player.getWorld().getName());
+    }
+
+    @EventHandler public void respawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        String cause = recentDeaths.remove(player.getUniqueId());
+        if (cause == null) return;
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            if (!player.isOnline()) return;
+            player.sendTitle("§5死之执政 · 若娜瓦", "§7死亡已记入天空岛的纪事", 10, 55, 15);
+            player.playSound(player.getLocation(), Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.6f, 0.7f);
+            player.sendMessage("§7若娜瓦记录了你的死亡（原因：" + cause + "）。天空岛已将此事记入纪事。");
+        }, 2L);
+    }
+
+    @EventHandler public void playerQuit(PlayerQuitEvent event) {
+        recentDeaths.remove(event.getPlayer().getUniqueId());
     }
 
     private void handleReply(AgentRole role, AgentReply reply) {
@@ -231,12 +283,12 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             switch (type) {
                 case "set_law" -> {
                     String result = laws.apply(prepared.action(), guard.hasRecentIncident(), this::audit);
-                    if (result.startsWith("法涅斯法令 v")) Bukkit.broadcastMessage(ChatColor.GOLD + result);
+                    if (result.startsWith("法涅斯法令 v")) announce(result, "法令已宣告");
                     report.accept(result);
                 }
                 case "declare_plan" -> {
                     String result = laws.declarePlan(prepared.action(), this::audit);
-                    if (result.startsWith("法涅斯公布")) Bukkit.broadcastMessage(ChatColor.LIGHT_PURPLE + result);
+                    if (result.startsWith("法涅斯公布")) announce(result, "神圣规划已公布");
                     report.accept(result);
                 }
                 case "set_shadow_scope" -> report.accept(discipline.setScope(prepared.action()));
@@ -277,7 +329,8 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         }
         try {
             switch (args[0].toLowerCase()) {
-                case "status" -> sender.sendMessage(metrics() + "OpenClaw=" + gatewayState + ", paused=" + paused
+                case "status" -> sender.sendMessage(metrics() + "OpenClaw=" + gatewayState
+                    + (gatewayDetail.isEmpty() ? "" : "，原因=" + gatewayDetail) + ", paused=" + paused
                     + ", guard-bans=" + guard.activeBans() + ", latest-edit=" + actions.latest()
                     + "\n" + laws.summary() + discipline.summary());
                 case "ask" -> {

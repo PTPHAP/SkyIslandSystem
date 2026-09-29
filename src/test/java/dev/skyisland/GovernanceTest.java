@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonParser;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -50,5 +51,29 @@ class GovernanceTest {
             """).getAsJsonObject();
         reloaded.setScope(grant);
         assertEquals("", new ShadowDiscipline(folder).check(AgentRole.RONOVA, "set_border"));
+    }
+
+    @Test void longWindowCannotTurnNormalBuildingIntoAutomaticBan() {
+        LawBook laws = new LawBook(folder);
+        var action = JsonParser.parseString("""
+            {"type":"set_law","signal":"place","limit":120,"window_seconds":3600,
+             "ban_minutes":30,"reason":"过低阈值","emergency":false}
+            """).getAsJsonObject();
+        assertThrows(IllegalArgumentException.class, () -> laws.validate(action));
+    }
+
+    @Test void existingUnsafeLawIsBackedUpAndResetOnUpgrade() throws Exception {
+        Files.writeString(folder.resolve("laws.properties"), """
+            version=1
+            place.limit=120
+            place.window=3600
+            place.ban=30
+            place.version=1
+            """);
+        LawBook laws = new LawBook(folder);
+        assertTrue(laws.adjustedUnsafeRules());
+        assertEquals(600, laws.rule("place").limit());
+        assertTrue(Files.exists(folder.resolve("laws.pre-v0.3.0.properties")));
+        assertFalse(new LawBook(folder).adjustedUnsafeRules());
     }
 }

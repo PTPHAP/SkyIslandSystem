@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -37,6 +38,24 @@ final class OpenClawClientTest {
             for (AgentRole role : AgentRole.values()) assertEquals("skyisland:admin:" + role.id, seen.get(role));
             assertNull(AgentReply.parse("{bad").action());
             assertThrows(IllegalArgumentException.class, () -> new OpenClawClient("http://example.com:19789", "token", 5));
+        } finally { server.stop(0); }
+    }
+
+    @Test void reportsActionableGatewayFailureWithoutEchoingResponseBody() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            byte[] body = "private provider error detail".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(401, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            OpenClawClient client = new OpenClawClient("http://127.0.0.1:" + server.getAddress().getPort(), "test-token", 5);
+            ExecutionException failure = assertThrows(ExecutionException.class,
+                () -> client.ask(AgentRole.PHANES, "hello").get(5, TimeUnit.SECONDS));
+            assertTrue(failure.getCause().getMessage().contains("Gateway token"));
+            assertFalse(failure.getCause().getMessage().contains("private provider"));
         } finally { server.stop(0); }
     }
 }

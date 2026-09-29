@@ -45,11 +45,19 @@ final class OpenClawClient {
             .POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
         return http.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply(response -> {
-                if (response.statusCode() != 200) throw new IllegalStateException("OpenClaw HTTP " + response.statusCode());
-                JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
-                String content = json.getAsJsonArray("choices").get(0).getAsJsonObject()
-                    .getAsJsonObject("message").get("content").getAsString();
-                return AgentReply.parse(content);
+                if (response.statusCode() != 200) throw new IllegalStateException(switch (response.statusCode()) {
+                    case 401, 403 -> "OpenClaw HTTP " + response.statusCode() + "：检查专用 Gateway token";
+                    case 404 -> "OpenClaw HTTP 404：检查聊天接口和角色 Agent ID";
+                    default -> "OpenClaw HTTP " + response.statusCode() + "：检查专用实例日志与模型连接";
+                });
+                try {
+                    JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                    String content = json.getAsJsonArray("choices").get(0).getAsJsonObject()
+                        .getAsJsonObject("message").get("content").getAsString();
+                    return AgentReply.parse(content);
+                } catch (RuntimeException invalid) {
+                    throw new IllegalStateException("OpenClaw 回复格式错误：检查专用实例日志", invalid);
+                }
             });
     }
 }

@@ -13,7 +13,7 @@ fi
 PAPER_ROOT="$1"; MODEL="$2"
 [[ -f "$PAPER_ROOT/eula.txt" && -d "$PAPER_ROOT/plugins" ]] || { echo '缺少 Paper 路径、plugins 目录或 EULA 文件'; exit 1; }
 grep -q '^eula=true' "$PAPER_ROOT/eula.txt" || { echo 'EULA 未由服务器所有者接受'; exit 1; }
-[[ -f "$ROOT/build/libs/SkyIslandSystem-0.1.1.jar" ]] || { echo '请先构建 JAR'; exit 1; }
+compgen -G "$PAPER_ROOT/plugins/SkyIslandSystem-*.jar" >/dev/null || { echo '请先将天空岛体系 Release JAR 放入 Paper/plugins'; exit 1; }
 command -v python3 >/dev/null && command -v openssl >/dev/null || { echo '需要 python3 和 openssl'; exit 1; }
 command -v java >/dev/null || { echo '需要 Java 17+'; exit 1; }
 JAVA_MAJOR="$(java -version 2>&1 | head -n 1 | sed -n 's/.*version "\([0-9]*\).*/\1/p')"
@@ -57,7 +57,7 @@ print(json.dumps({
  'tools': {'profile':'minimal','sessions':{'visibility':'self'},'agentToAgent':{'enabled':False},
            'fs':{'workspaceOnly':True},'deny':['exec','process','read','write','edit','apply_patch','browser','gateway','sessions_list','sessions_history','sessions_search','sessions_send','sessions_spawn']},
  'agents':{'defaults':{'model':{'primary':model}},'entries':{
-   r:{'workspace':s+'/workspaces/'+r,'identity':{'name':r},'default':r=='phanes'} for r in roles}}
+   r:{'workspace':s+'/workspaces/'+r,'agentDir':s+'/agents/'+r+'/agent','identity':{'name':r},'default':r=='phanes'} for r in roles}}
 },ensure_ascii=False))
 PY
 chmod 600 "$STATE/skyisland.patch.json"
@@ -70,7 +70,16 @@ openclaw config validate
 openclaw config get agents.entries --json | python3 -c 'import json,sys; assert set(json.load(sys.stdin)) == {"phanes","ronova","naberius","istaroth","asmoday"}'
 openclaw hooks enable session-memory
 openclaw agents list
+cat > "$STATE/start-skyisland-gateway.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+STATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export OPENCLAW_STATE_DIR="$STATE"
+export OPENCLAW_CONFIG_PATH="$STATE/openclaw.json"
+exec openclaw gateway run --port 19789
+SH
+chmod 700 "$STATE/start-skyisland-gateway.sh"
 printf 'gateway-token: "%s"\n' "$TOKEN" > "$STATE/plugin-secrets.yml"
 chmod 600 "$STATE/plugin-secrets.yml"
 echo "配置已生成于 $STATE。由 Paper 管理员安装 JAR 并安全复制 $STATE/plugin-secrets.yml 到 Paper/plugins/SkyIslandSystem/secrets.yml。"
-echo '由专用账号启动 openclaw gateway，再做真实模型与隔离验收；脚本未宣称已完成安装。'
+echo "由专用账号运行 $STATE/start-skyisland-gateway.sh，再做真实模型与隔离验收；脚本未宣称已完成安装。"

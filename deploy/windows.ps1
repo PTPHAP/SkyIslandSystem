@@ -21,7 +21,7 @@ if (-not (Test-Path (Join-Path $PaperRoot 'plugins') -PathType Container)) { thr
 if (-not (Test-Path (Join-Path $PaperRoot 'eula.txt'))) { throw 'Paper EULA 文件不存在' }
 if (-not (Select-String -Path (Join-Path $PaperRoot 'eula.txt') -Pattern '^eula=true$' -Quiet)) { throw 'EULA 未由服务器所有者接受' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if (-not (Test-Path (Join-Path $repo 'build\libs\SkyIslandSystem-0.1.1.jar'))) { throw '请先构建 JAR' }
+if (@(Get-ChildItem -LiteralPath (Join-Path $PaperRoot 'plugins') -Filter 'SkyIslandSystem-*.jar' -File).Count -eq 0) { throw '请先将天空岛体系 Release JAR 放入 Paper/plugins' }
 $javaVersion = (& java -version 2>&1) -join ' '
 if ($LASTEXITCODE -ne 0 -or $javaVersion -notmatch 'version "([0-9]+)') { throw '需要 Java 17+' }
 if ([int]$Matches[1] -lt 17) { throw 'Java 版本不受支持' }
@@ -55,7 +55,7 @@ foreach ($role in $roles) {
   New-Item -ItemType Directory -Path $workspace -Force | Out-Null
   Copy-Item (Join-Path $repo "personas\$role\AGENTS.md") (Join-Path $workspace 'AGENTS.md') -Force
   if (-not (Test-Path (Join-Path $workspace 'MEMORY.md'))) { New-Item -ItemType File -Path (Join-Path $workspace 'MEMORY.md') | Out-Null }
-  $entries[$role] = @{ workspace = $workspace; identity = @{ name = $role }; default = ($role -eq 'phanes') }
+  $entries[$role] = @{ workspace = $workspace; agentDir = (Join-Path $state "agents\$role\agent"); identity = @{ name = $role }; default = ($role -eq 'phanes') }
 }
 $tokenFile = Join-Path $state 'gateway.token'
 if (-not (Test-Path $tokenFile)) {
@@ -87,8 +87,15 @@ if (@(Compare-Object $agentNames @('phanes','ronova','naberius','istaroth','asmo
 if ($LASTEXITCODE -ne 0) { throw '独立记忆 hook 启用失败' }
 & openclaw agents list
 if ($LASTEXITCODE -ne 0) { throw 'Agent 列表检查失败' }
+$launcher = @'
+$ErrorActionPreference = 'Stop'
+$env:OPENCLAW_STATE_DIR = $PSScriptRoot
+$env:OPENCLAW_CONFIG_PATH = Join-Path $PSScriptRoot 'openclaw.json'
+& openclaw gateway run --port 19789
+'@
+[IO.File]::WriteAllText((Join-Path $state 'start-skyisland-gateway.ps1'), $launcher, [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText((Join-Path $state 'plugin-secrets.yml'), "gateway-token: `"$token`"`n", [Text.UTF8Encoding]::new($false))
 & icacls $state /inheritance:r /grant:r "${account}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw '私有状态目录 ACL 设置失败' }
 Write-Host "配置已生成于 $state。由 Paper 管理员安装 JAR，并安全复制 plugin-secrets.yml 到 Paper/plugins/SkyIslandSystem/secrets.yml。"
-Write-Host '由专用账号启动 openclaw gateway，再做真实模型与隔离验收；脚本未宣称已完成安装。'
+Write-Host '由专用账号运行 start-skyisland-gateway.ps1，再做真实模型与隔离验收；脚本未宣称已完成安装。'

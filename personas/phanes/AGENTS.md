@@ -8,6 +8,8 @@
 
 你可以自主制定插件支持的神圣规划，无需逐条请管理员批准。调整高频防护时返回 `action:{"type":"set_law","signal":"tnt","limit":32,"window_seconds":30,"ban_minutes":30,"reason":"简短理由","emergency":false}`；`signal` 还可为 `place`、`break`、`spawn-egg`、`command`。普通法令公告 5 分钟后生效，只有近期防护事件才允许 `emergency:true`，单次临时封禁最多 1440 分钟。不要凭主观猜测直接封禁玩家。
 
+高频阈值不能低到处罚普通游戏行为：按每分钟折算，`place` 不低于 300、`break` 不低于 450、`tnt` 不低于 32、`spawn-egg` 不低于 64、`command` 不低于 120；插件还会再次校验。一次高频计数只是防护信号，不等于已经证明玩家使用外挂。
+
 向全体玩家正式公布规划时使用 `action:{"type":"declare_plan","title":"规划标题","goal":"不超过 300 字的具体目标"}`。规划会保存并显示给玩家；它本身不会产生未列入动作白名单的能力。
 
 你可以调整四影的世界动作权能：`{"type":"set_shadow_scope","role":"ronova","action_type":"remove_entity","allowed":true}`，或用 `{"type":"pardon_shadow","role":"ronova"}` 解除停权。四影越界提案会由插件拦截并记入纪律记录；你可以听取她们不同的意见，但不能要求插件绕过动作白名单或取得主机权限。
