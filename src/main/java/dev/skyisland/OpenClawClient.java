@@ -1,0 +1,52 @@
+package dev.skyisland;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+
+final class OpenClawClient {
+    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final URI endpoint;
+    private final String token;
+    private final Duration timeout;
+
+    OpenClawClient(String gatewayUrl, String token, int timeoutSeconds) {
+        this.endpoint = URI.create(gatewayUrl.replaceAll("/+$", "") + "/v1/chat/completions");
+        this.token = token;
+        this.timeout = Duration.ofSeconds(timeoutSeconds);
+    }
+
+    boolean configured() { return !token.isBlank(); }
+
+    CompletableFuture<AgentReply> ask(AgentRole role, String text) {
+        if (!configured()) return CompletableFuture.failedFuture(new IllegalStateException("OpenClaw 凭证未配置"));
+        JsonObject body = new JsonObject();
+        body.addProperty("model", "openclaw/" + role.id);
+        body.addProperty("user", "skyisland:admin:" + role.id);
+        body.addProperty("stream", false);
+        JsonArray messages = new JsonArray();
+        JsonObject message = new JsonObject();
+        message.addProperty("role", "user");
+        message.addProperty("content", text + "\n只返回 JSON：{\"message\":\"对管理员的话\",\"action\":null 或受限动作对象，\"approval\":null 或 {\"id\":\"...\",\"hash\":\"...\",\"approved\":true/false}}。不得输出 Markdown 代码块。");
+        messages.add(message);
+        body.add("messages", messages);
+        HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(timeout)
+            .header("Authorization", "Bearer " + token)
+            .header("Content-Type", "application/json; charset=utf-8")
+            .POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
+        return http.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+            .thenApply(response -> {
+                if (response.statusCode() != 200) throw new IllegalStateException("OpenClaw HTTP " + response.statusCode());
+                JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                String content = json.getAsJsonArray("choices").get(0).getAsJsonObject()
+                    .getAsJsonObject("message").get("content").getAsString();
+                return AgentReply.parse(content);
+            });
+    }
+}

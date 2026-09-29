@@ -1,0 +1,15 @@
+name: SkyIslandSystem
+version: ${version}
+main: dev.skyisland.SkyIslandPlugin
+api-version: '1.20'
+description: 天空岛体系 - 五执政世界维护
+author: SkyIslandSystem contributors
+commands:
+  skyisland:
+    description: 打开天空岛体系管理面板
+    usage: /skyisland [ask|status|pause|resume|confirm|undo]
+    permission: skyisland.admin
+permissions:
+  skyisland.admin:
+    description: 管理天空岛体系
+    default: op
