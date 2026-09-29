@@ -32,9 +32,11 @@ final class OpenClawClientTest {
         try {
             OpenClawClient client = new OpenClawClient("http://127.0.0.1:" + server.getAddress().getPort(), "test-token", 5);
             for (AgentRole role : AgentRole.values()) assertEquals("ok", client.ask(role, "hello").get(5, TimeUnit.SECONDS).message());
+            assertEquals("ok", client.ask(AgentRole.RONOVA, "remember").get(5, TimeUnit.SECONDS).message());
             assertEquals(5, seen.size());
             for (AgentRole role : AgentRole.values()) assertEquals("skyisland:admin:" + role.id, seen.get(role));
             assertNull(AgentReply.parse("{bad").action());
+            assertThrows(IllegalArgumentException.class, () -> new OpenClawClient("http://example.com:19789", "token", 5));
         } finally { server.stop(0); }
     }
 }

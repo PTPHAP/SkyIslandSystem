@@ -8,6 +8,8 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,14 +38,20 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     private static final String TITLE = ChatColor.DARK_PURPLE + "天空岛体系 · 天理议事厅";
     private final Map<AgentRole, String> replies = new HashMap<>();
     private final Map<String, Pending> pending = new HashMap<>();
+    private final Deque<String> recentAudit = new ArrayDeque<>();
     private final ExecutorService auditIo = Executors.newSingleThreadExecutor();
     private OpenClawClient client;
     private WorldActions actions;
     private AbuseGuard guard;
     private boolean paused;
+    private String gatewayState = "未验证";
     private String alert = "正常";
 
-    private record Pending(AgentRole from, WorldActions.Prepared action, String hash) {}
+    private record Pending(AgentRole from, WorldActions.Prepared action, String hash, long expiresAt) {}
+
+    private void prunePending() {
+        pending.values().removeIf(p -> p.expiresAt() < System.currentTimeMillis());
+    }
 
     @Override public void onEnable() {
         saveDefaultConfig();
@@ -52,6 +60,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         if (token.isBlank()) token = System.getenv().getOrDefault("SKYISLAND_OPENCLAW_TOKEN", "");
         client = new OpenClawClient(getConfig().getString("gateway-url", "http://127.0.0.1:19789"),
             token, getConfig().getInt("request-timeout-seconds", 25));
+        if (!client.configured()) gatewayState = "未配置";
         actions = new WorldActions(this);
         guard = new AbuseGuard(this);
         Bukkit.getPluginManager().registerEvents(this, this);
@@ -70,6 +79,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     }
 
     private void review() {
+        prunePending();
         double tps = Bukkit.getTPS()[0];
         long disk = getDataFolder().getUsableSpace();
         alert = tps < 18 || disk < 5_000_000_000L ? "需要检查：TPS 或磁盘空间" : "正常";
@@ -98,12 +108,14 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             if (!isEnabled()) return;
             Bukkit.getScheduler().runTask(this, () -> {
                 if (error != null) {
+                    gatewayState = "请求失败";
                     String failure = "OpenClaw 请求失败: " + error.getClass().getSimpleName();
                     replies.put(role, failure);
                     if (sender != null) sender.sendMessage(ChatColor.RED + failure);
                     return;
                 }
                 replies.put(role, reply.message());
+                gatewayState = "已响应";
                 if (sender != null) sender.sendMessage(ChatColor.LIGHT_PURPLE + role.display + ": " + reply.message());
                 handleReply(role, reply);
             });
@@ -111,21 +123,24 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     }
 
     private void handleReply(AgentRole role, AgentReply reply) {
+        prunePending();
         if (role == AgentRole.PHANES && !reply.approvalId().isBlank()) {
             Pending p = pending.remove(reply.approvalId());
             if (p == null || !p.hash.equals(reply.approvalHash())) { audit("approval-rejected invalid-id-or-hash"); return; }
-            audit("approval " + p.action.id() + " " + reply.approved() + " from=" + p.from.id);
+            audit("approval " + p.action.id() + " " + reply.approved()
+                + " approver=phanes proposer=" + p.from.id);
             if (reply.approved()) executeOrQueue(p.action());
         }
         if (reply.action() == null || paused) return;
         try {
             WorldActions.Prepared prepared = actions.prepare(reply.action());
             if (role == AgentRole.PHANES) {
+                audit("direct-action proposer=phanes id=" + prepared.id());
                 executeOrQueue(prepared);
                 return;
             }
             String hash = sha256(reply.action().toString());
-            pending.put(prepared.id(), new Pending(role, prepared, hash));
+            pending.put(prepared.id(), new Pending(role, prepared, hash, System.currentTimeMillis() + 3_600_000));
             audit("shadow-proposal " + prepared.id() + " from=" + role.id + " hash=" + hash);
             ask(AgentRole.PHANES, "影子 " + role.display + " 提议以下动作。你只能按世界治理规则审批，不能改写动作。"
                 + "\n提案 ID=" + prepared.id() + "\nHASH=" + hash + "\n动作=" + reply.action()
@@ -136,7 +151,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     private void executeOrQueue(WorldActions.Prepared prepared) {
         if (paused) return;
         if (!prepared.reason().isEmpty()) {
-            pending.put(prepared.id(), new Pending(AgentRole.PHANES, prepared, "admin"));
+            pending.put(prepared.id(), new Pending(AgentRole.PHANES, prepared, "admin", System.currentTimeMillis() + 3_600_000));
             audit("admin-confirmation-required " + prepared.id() + " reason=" + prepared.reason());
             Bukkit.getOnlinePlayers().stream().filter(p -> p.hasPermission("skyisland.admin"))
                 .forEach(p -> p.sendMessage(ChatColor.GOLD + "天空岛复杂编辑待确认 " + prepared.id()
@@ -163,6 +178,8 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     }
 
     void audit(String entry) {
+        recentAudit.addFirst(entry.replace('\n', ' '));
+        while (recentAudit.size() > 7) recentAudit.removeLast();
         String line = Instant.now() + " " + entry.replace('\n', ' ') + System.lineSeparator();
         auditIo.execute(() -> {
             try { Files.writeString(getDataFolder().toPath().resolve("audit.log"), line,
@@ -180,7 +197,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         }
         try {
             switch (args[0].toLowerCase()) {
-                case "status" -> sender.sendMessage(metrics() + "OpenClaw=" + client.configured() + ", paused=" + paused
+                case "status" -> sender.sendMessage(metrics() + "OpenClaw=" + gatewayState + ", paused=" + paused
                     + ", guard-bans=" + guard.activeBans() + ", latest-edit=" + actions.latest());
                 case "ask" -> {
                     if (args.length < 3) throw new IllegalArgumentException("用法: /skyisland ask <角色英文ID> <问题>");
@@ -192,6 +209,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
                 case "pause" -> { paused = true; audit("ai-paused by=" + sender.getName()); sender.sendMessage("AI 世界动作已暂停"); }
                 case "resume" -> { paused = false; audit("ai-resumed by=" + sender.getName()); sender.sendMessage("AI 世界动作已恢复"); }
                 case "confirm" -> {
+                    prunePending();
                     if (args.length != 2) throw new IllegalArgumentException("用法: /skyisland confirm <提案ID>");
                     Pending p = pending.get(args[1]);
                     if (p == null || !p.hash.equals("admin")) throw new IllegalArgumentException("没有此管理员待确认动作");
@@ -228,19 +246,32 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     }
 
     private Inventory menu() {
+        prunePending();
         Inventory inventory = Bukkit.createInventory(null, 54, TITLE);
         inventory.setItem(4, item(Material.NETHER_STAR, "§d天理－法涅斯",
-            "§7TPS " + String.format("%.2f", Bukkit.getTPS()[0]), "§7告警 " + alert, "§7AI " + (paused ? "已暂停" : "运行中")));
+            "§7TPS " + String.format("%.2f", Bukkit.getTPS()[0]), "§7告警 " + alert,
+            "§7网关 " + gatewayState, "§7AI 动作 " + (paused ? "已暂停" : "允许")));
         AgentRole[] roles = AgentRole.values();
         Material[] icons = {Material.NETHER_STAR, Material.WITHER_SKELETON_SKULL, Material.FLOWER_POT,
             Material.CLOCK, Material.ENDER_PEARL};
         for (int i = 0; i < roles.length; i++) inventory.setItem(10 + i, item(icons[i], "§e" + roles[i].display,
             "§7" + roles[i].domain, "§7点击请求状态汇报", "§8" + replies.getOrDefault(roles[i], "等待首次回复")));
+        int proposalSlot = 19;
+        for (Pending p : pending.values()) {
+            if (proposalSlot > 26) break;
+            inventory.setItem(proposalSlot++, item(Material.WRITABLE_BOOK, "§6提案 " + p.action.id(),
+                "§7来源: " + p.from.display, "§7动作: " + p.action.action().get("type").getAsString(),
+                "§7状态: " + (p.hash.equals("admin") ? "待管理员确认" : "待法涅斯审批"),
+                "§8" + p.action.reason()));
+        }
         inventory.setItem(29, item(Material.COMPARATOR, "§b服务器指标", "§7" + metrics().replace('\n', ' ')));
         inventory.setItem(31, item(Material.PAPER, "§6待确认动作", "§7数量: " + pending.values().stream().filter(p -> p.hash.equals("admin")).count(),
             "§7使用 /skyisland confirm <ID>", "§7最新撤销 ID: " + actions.latest()));
         inventory.setItem(33, item(paused ? Material.LIME_DYE : Material.RED_DYE,
             paused ? "§a恢复 AI 动作" : "§c暂停 AI 动作", "§7点击切换"));
+        int auditSlot = 37;
+        for (String line : recentAudit) inventory.setItem(auditSlot++, item(Material.BOOK, "§b操作记录",
+            "§7" + (line.length() > 100 ? line.substring(0, 100) + "…" : line)));
         inventory.setItem(49, item(Material.SHIELD, "§b稳定性防护", "§7临时封禁: " + guard.activeBans(),
             "§7证据: /skyisland evidence <玩家>"));
         return inventory;

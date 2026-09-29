@@ -39,7 +39,7 @@ foreach ($role in $roles) {
   New-Item -ItemType Directory -Path $workspace -Force | Out-Null
   Copy-Item (Join-Path $repo "personas\$role\AGENTS.md") (Join-Path $workspace 'AGENTS.md') -Force
   if (-not (Test-Path (Join-Path $workspace 'MEMORY.md'))) { New-Item -ItemType File -Path (Join-Path $workspace 'MEMORY.md') | Out-Null }
-  $entries[$role] = @{ workspace = $workspace; identity = @{ name = $role } }
+  $entries[$role] = @{ workspace = $workspace; identity = @{ name = $role }; default = ($role -eq 'phanes') }
 }
 $tokenFile = Join-Path $state 'gateway.token'
 if (-not (Test-Path $tokenFile)) {
@@ -55,9 +55,9 @@ $patch = @{
 }
 $patchFile = Join-Path $state 'skyisland.patch.json'
 [IO.File]::WriteAllText($patchFile, ($patch | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
-& openclaw config patch --file $patchFile --dry-run
+& openclaw config patch --file $patchFile --replace-path agents.entries --dry-run
 if ($LASTEXITCODE -ne 0) { throw '配置预检失败；未应用配置' }
-& openclaw config patch --file $patchFile
+& openclaw config patch --file $patchFile --replace-path agents.entries
 if ($LASTEXITCODE -ne 0) { throw '配置写入失败' }
 & openclaw config validate
 if ($LASTEXITCODE -ne 0) { throw '配置验证失败' }
@@ -65,6 +65,7 @@ if ($LASTEXITCODE -ne 0) { throw '配置验证失败' }
 if ($LASTEXITCODE -ne 0) { throw '独立记忆 hook 启用失败' }
 & openclaw agents list
 [IO.File]::WriteAllText((Join-Path $state 'plugin-secrets.yml'), "gateway-token: `"$token`"`n", [Text.UTF8Encoding]::new($false))
-& icacls $state /inheritance:r /grant:r "${account}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' | Out-Null
+& icacls $state /inheritance:r /grant:r "${account}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw '私有状态目录 ACL 设置失败' }
 Write-Host "配置已生成于 $state。由 Paper 管理员安装 JAR，并安全复制 plugin-secrets.yml 到 Paper/plugins/SkyIslandSystem/secrets.yml。"
 Write-Host '由专用账号启动 openclaw gateway，再做真实模型与隔离验收；脚本未宣称已完成安装。'

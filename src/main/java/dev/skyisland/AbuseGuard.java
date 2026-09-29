@@ -7,8 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -37,7 +35,7 @@ final class AbuseGuard implements Listener, AutoCloseable {
     private final Path banFile;
     private final Path evidenceFile;
     private final Map<UUID, Long> bans = new ConcurrentHashMap<>();
-    private final Map<String, Deque<Long>> windows = new ConcurrentHashMap<>();
+    private final Map<String, WindowCounter> windows = new ConcurrentHashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
 
     AbuseGuard(SkyIslandPlugin plugin) {
@@ -111,11 +109,9 @@ final class AbuseGuard implements Listener, AutoCloseable {
     private boolean hit(Player player, String signal, long windowMillis, int limit, String location) {
         long now = System.currentTimeMillis();
         String key = player.getUniqueId() + ":" + signal;
-        Deque<Long> times = windows.computeIfAbsent(key, ignored -> new ArrayDeque<>());
-        while (!times.isEmpty() && times.peekFirst() < now - windowMillis) times.removeFirst();
-        times.addLast(now);
-        if (times.size() <= limit) return false;
-        if (times.size() == limit + 1) ban(player, signal, times.size(), windowMillis, location);
+        int count = windows.computeIfAbsent(key, ignored -> new WindowCounter()).add(now, windowMillis);
+        if (count <= limit) return false;
+        if (count == limit + 1) ban(player, signal, count, windowMillis, location);
         return true;
     }
 

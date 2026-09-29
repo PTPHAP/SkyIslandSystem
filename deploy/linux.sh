@@ -45,12 +45,12 @@ print(json.dumps({
  'tools': {'profile':'minimal','sessions':{'visibility':'self'},'agentToAgent':{'enabled':False},
            'fs':{'workspaceOnly':True},'deny':['exec','process','read','write','edit','apply_patch','browser','gateway','sessions_list','sessions_history','sessions_search','sessions_send','sessions_spawn']},
  'agents':{'defaults':{'model':{'primary':model}},'entries':{
-   r:{'workspace':s+'/workspaces/'+r,'identity':{'name':r}} for r in roles}}
+   r:{'workspace':s+'/workspaces/'+r,'identity':{'name':r},'default':r=='phanes'} for r in roles}}
 },ensure_ascii=False))
 PY
 chmod 600 "$STATE/skyisland.patch.json"
-openclaw config patch --file "$STATE/skyisland.patch.json" --dry-run
-openclaw config patch --file "$STATE/skyisland.patch.json"
+openclaw config patch --file "$STATE/skyisland.patch.json" --replace-path agents.entries --dry-run
+openclaw config patch --file "$STATE/skyisland.patch.json" --replace-path agents.entries
 openclaw config validate
 openclaw hooks enable session-memory
 openclaw agents list
