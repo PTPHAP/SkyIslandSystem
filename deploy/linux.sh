@@ -13,7 +13,7 @@ fi
 PAPER_ROOT="$1"; MODEL="$2"
 [[ -f "$PAPER_ROOT/eula.txt" && -d "$PAPER_ROOT/plugins" ]] || { echo '缺少 Paper 路径、plugins 目录或 EULA 文件'; exit 1; }
 grep -q '^eula=true' "$PAPER_ROOT/eula.txt" || { echo 'EULA 未由服务器所有者接受'; exit 1; }
-[[ -f "$ROOT/build/libs/SkyIslandSystem-0.1.0.jar" ]] || { echo '请先构建 JAR'; exit 1; }
+[[ -f "$ROOT/build/libs/SkyIslandSystem-0.1.1.jar" ]] || { echo '请先构建 JAR'; exit 1; }
 command -v python3 >/dev/null && command -v openssl >/dev/null || { echo '需要 python3 和 openssl'; exit 1; }
 command -v java >/dev/null || { echo '需要 Java 17+'; exit 1; }
 JAVA_MAJOR="$(java -version 2>&1 | head -n 1 | sed -n 's/.*version "\([0-9]*\).*/\1/p')"

@@ -5,6 +5,7 @@ build/
 *.log
 secrets.yml
 runtime/
+dist/
 cache/
 libraries/
 versions/

@@ -1,0 +1,60 @@
+# 天空岛体系部署教程
+
+此教程面向**一台** Paper 1.20.1 服务器。源码仓库：[PTPHAP/SkyIslandSystem](https://github.com/PTPHAP/SkyIslandSystem)；JAR 从 [v0.1.1 Release](https://github.com/PTPHAP/SkyIslandSystem/releases/tag/v0.1.1) 下载。部署时不要把模型密钥、Gateway token、`secrets.yml` 发进聊天。若希望让 OpenClaw 代为执行，把 [DEPLOY_PROMPT.md](DEPLOY_PROMPT.md) 整段交给它，并向它提供目标机器的 Paper 路径、操作权限和模型连接方式。
+
+## 1. 准备信息
+
+- 服务器所有者已经接受 Minecraft EULA；`eula.txt` 中为 `eula=true`。确认 Paper 是 1.20.1，并由管理员备份世界。
+- 目标机器上有 Java 17+、Node 24.16+ 或 26.1+、至少 2 GiB 可用空间。当前开发机的 Node 22 **不能**运行新版 OpenClaw；对接时要先升级或给专用账号安装受支持的 Node。
+- 准备模型的 `提供商/模型ID` 和该提供商的凭证。凭证只配置在专用 OpenClaw 账号中。插件只持有独立 Gateway token。
+- 明确整服备份目录和服务器重启方式。插件既不做整服备份也不接管重启；如果没有现成机制，报告缺项，复杂方块编辑保持不可确认。
+- 生产服若使用 `online-mode=false`，插件只踢出高频破坏连接并保留证据，不按可冒用的玩家身份自动临时封禁。`online-mode=true` 时自动封禁 30 分钟。
+
+## 2. 构建与安装 Paper 插件
+
+下载 Release JAR，放入 Paper 的 `plugins/`，启动一次服务器，生成 `plugins/SkyIslandSystem/config.yml`，然后正常停止。管理员权限节点为 `skyisland.admin`；OP 默认拥有。插件即使没有配置 OpenClaw 也能启动、显示指标和运行本地防护。
+
+如需自己构建：`git clone https://github.com/PTPHAP/SkyIslandSystem.git`，进入目录，在 Windows 执行 `gradlew.bat build`，Linux 执行 `./gradlew build`；JAR 在 `build/libs/`。Windows 中文路径上 Gradle 测试类加载失败时，可映射 ASCII 盘符，见 [README](README.md)。
+
+## 3. 专用 OpenClaw 账号
+
+**Windows**：管理员运行 `powershell -File deploy/windows.ps1 -CreateAccount`，在本机交互式输入新账号密码。登录新建的 `SkyIslandSvc` 账号，安装受支持的 Node，再用官方 npm 包安装 `openclaw`。切勿沿用现有账号的 `~/.openclaw` 目录。
+
+**Linux**：管理员运行 `sudo ./deploy/linux.sh --create-user`；切换到 `skyisland`，安装受支持的 Node 和 `openclaw`。不要把旧实例的状态目录挂载或复制给这个账号。
+
+在专用账号中先运行 `openclaw --profile skyisland onboard`，按本地向导配置模型与凭证。不要在向导里接入旧项目的频道、会话或共享工作区。确认 `openclaw --profile skyisland config validate` 成功。若 OpenClaw 安装程序使用不同版本的配置格式，应按当前官方文档修正脚本并重新验证，不能跳过隔离检查。
+
+## 4. 生成五角色实例配置
+
+**Windows**：在专用账号下运行：
+
+```powershell
+powershell -File deploy/windows.ps1 -PaperRoot 'D:\1.20.1paper' -ModelId '提供商/模型ID'
+```
+
+**Linux**：在专用账号下运行：
+
+```bash
+./deploy/linux.sh /srv/paper-1.20.1 '提供商/模型ID'
+```
+
+脚本使用私有状态目录 `~/.openclaw-skyisland`、端口 `127.0.0.1:19789`，生成五个独立 Agent 工作区，并启用会话记忆 hook。它设置最小工具权限、关闭跨 Agent 会话工具，校验五个 Agent 的名称与隔离配置。脚本末尾打印“配置已生成”只代表**本地配置检查**，不代表模型请求或 Paper 联通已经成功。
+
+如果脚本停在 Java、Node、Paper、EULA、模型、权限或配置检查处，按错误提示补齐后重跑。不要在检查失败时绕过工具权限或把已有 OpenClaw 凭证复制到 Paper 插件目录。
+
+## 5. 启动 Gateway 与连接 Paper
+
+在专用账号下启动 `openclaw --profile skyisland gateway --port 19789`，确认本机 `127.0.0.1:19789` 可访问，并保持 Gateway 在该账号下运行。生产部署应由管理员为该账号设置常驻服务或计划任务，确保重启后使用同一个 profile、状态目录、端口和凭证；不要让 Paper 插件负责拉起 Gateway。
+
+脚本在私有状态目录生成 `plugin-secrets.yml`。由 Paper 管理员**在目标机器本地**复制到 `plugins/SkyIslandSystem/secrets.yml`，限制文件读取权限；不要复制 `openclaw.json` 或模型密钥。`plugins/SkyIslandSystem/config.yml` 中 `gateway-url` 保持默认的 `http://127.0.0.1:19789`，如需复杂编辑再将 `backup-directory` 指向已有备份目录。重启 Paper。
+
+## 6. 真实验收
+
+1. `openclaw --profile skyisland config validate` 与 `openclaw --profile skyisland agents list` 均成功，且仅列出五位角色。用专用 token 请求 `/v1/models`，再向每个 `openclaw/<id>` 发一次实际模型请求；只有 HTTP 成功和有效内容才算已联通。
+2. 在 Paper 控制台运行 `skyisland status`，应显示 `OpenClaw=已响应`（至少在执行一次 `ask` 后）；分别运行 `skyisland ask phanes ...`、`ronova`、`naberius`、`istaroth`、`asmoday`。使用不同随机短语追问，验证各角色只记住自己的短语。
+3. 普通玩家不能使用 `/skyisland`；管理员可打开面板并查看指标、角色状态、提案 ID、最近操作记录。四影的动作必须在审计日志里先有提案和 `approver=phanes` 审批，再执行；无审批和错误 hash 不执行。
+4. 在**测试世界**编辑一个普通方块，记录撤销 ID；重启 Paper 后执行 `skyisland undo <ID>` 并核验方块恢复。箱子、红石、流体邻域的编辑应要求管理员确认；没有最近备份文件时确认被拒。方块随后被玩家修改时，撤销应拒绝覆盖。
+5. 在受控测试账号上验证高频防护的证据、到期时间与管理员解封。身份不可验证的离线模式只验证踢出与留证。关闭 Gateway 后，Paper 仍须正常运行且 `ask` 报请求失败。
+6. 用专用账号尝试读取旧 OpenClaw 状态目录，应被操作系统拒绝；检查本实例不能访问旧项目会话。确认现有备份与重启服务仍有效。
+
+审计与证据位于 `plugins/SkyIslandSystem/audit.log`、`guard-evidence.log`、`snapshots/`。出现“未验证”或“请求失败”时，分别检查 Gateway 是否运行、模型凭证、端口、五个 Agent 的配置和私有 token；**不要把这些文件或凭证贴进聊天**。

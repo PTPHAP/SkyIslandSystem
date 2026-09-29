@@ -21,7 +21,7 @@ if (-not (Test-Path (Join-Path $PaperRoot 'plugins') -PathType Container)) { thr
 if (-not (Test-Path (Join-Path $PaperRoot 'eula.txt'))) { throw 'Paper EULA 文件不存在' }
 if (-not (Select-String -Path (Join-Path $PaperRoot 'eula.txt') -Pattern '^eula=true$' -Quiet)) { throw 'EULA 未由服务器所有者接受' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if (-not (Test-Path (Join-Path $repo 'build\libs\SkyIslandSystem-0.1.0.jar'))) { throw '请先构建 JAR' }
+if (-not (Test-Path (Join-Path $repo 'build\libs\SkyIslandSystem-0.1.1.jar'))) { throw '请先构建 JAR' }
 $javaVersion = (& java -version 2>&1) -join ' '
 if ($LASTEXITCODE -ne 0 -or $javaVersion -notmatch 'version "([0-9]+)') { throw '需要 Java 17+' }
 if ([int]$Matches[1] -lt 17) { throw 'Java 版本不受支持' }

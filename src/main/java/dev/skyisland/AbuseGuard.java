@@ -61,6 +61,7 @@ final class AbuseGuard implements Listener, AutoCloseable {
     }
 
     @EventHandler public void preLogin(AsyncPlayerPreLoginEvent event) {
+        if (!plugin.getServer().getOnlineMode()) return;
         Long expiry = bans.get(event.getUniqueId());
         if (expiry == null) return;
         if (expiry <= System.currentTimeMillis()) { bans.remove(event.getUniqueId()); save(); return; }
@@ -111,28 +112,29 @@ final class AbuseGuard implements Listener, AutoCloseable {
         String key = player.getUniqueId() + ":" + signal;
         int count = windows.computeIfAbsent(key, ignored -> new WindowCounter()).add(now, windowMillis);
         if (count <= limit) return false;
-        if (count == limit + 1) ban(player, signal, count, windowMillis, location);
+        if (count == limit + 1) enforce(player, signal, count, windowMillis, location);
         return true;
     }
 
-    private void ban(Player player, String signal, int count, long windowMillis, String location) {
+    private void enforce(Player player, String signal, int count, long windowMillis, String location) {
+        boolean verifiedIdentity = plugin.getServer().getOnlineMode();
         long expiry = System.currentTimeMillis() + BAN_MILLIS;
-        bans.put(player.getUniqueId(), expiry);
+        if (verifiedIdentity) bans.put(player.getUniqueId(), expiry);
         String evidence = Instant.now() + " uuid=" + player.getUniqueId() + " name=" + player.getName()
             + " signal=" + signal + " count=" + count + " window-ms=" + windowMillis
             + " world=" + player.getWorld().getName() + " location=" + location
-            + " expires=" + Instant.ofEpochMilli(expiry);
-        plugin.audit("guard-ban " + evidence);
+            + " expires=" + (verifiedIdentity ? Instant.ofEpochMilli(expiry) : "none-offline-mode");
+        plugin.audit((verifiedIdentity ? "guard-ban " : "guard-kick ") + evidence);
         plugin.getServer().getOnlinePlayers().stream().filter(p -> p.hasPermission("skyisland.admin"))
-            .forEach(p -> p.sendMessage(ChatColor.GOLD + "天空岛已临时封禁 " + player.getName()
-                + " 30 分钟；证据 /skyisland evidence " + player.getUniqueId()));
+            .forEach(p -> p.sendMessage(ChatColor.GOLD + "天空岛已" + (verifiedIdentity ? "临时封禁" : "踢出")
+                + player.getName() + "；证据 /skyisland evidence " + player.getUniqueId()));
         io.execute(() -> {
             try { Files.writeString(evidenceFile, evidence + System.lineSeparator(),
                 java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND); }
             catch (IOException e) { plugin.getLogger().warning("防护证据写入失败"); }
         });
-        save();
-        player.kickPlayer(ChatColor.RED + "天空岛稳定性防护：异常高频行为，临时封禁 30 分钟。联系管理员查看证据。");
+        if (verifiedIdentity) save();
+        player.kickPlayer(ChatColor.RED + "天空岛稳定性防护：异常高频行为已被拦截。联系管理员查看证据。");
     }
 
     String evidence(String identity) {
