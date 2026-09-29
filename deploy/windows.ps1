@@ -53,7 +53,16 @@ $entries = @{}
 foreach ($role in $roles) {
   $workspace = Join-Path $state "workspaces\$role"
   New-Item -ItemType Directory -Path $workspace -Force | Out-Null
-  Copy-Item (Join-Path $repo "personas\$role\AGENTS.md") (Join-Path $workspace 'AGENTS.md') -Force
+  foreach ($name in @('AGENTS.md', 'SOUL.md')) {
+    $source = Join-Path $repo "personas\$role\$name"
+    $target = Join-Path $workspace $name
+    if ((Test-Path -LiteralPath $target) -and
+        (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) {
+      $stamp = Get-Date -Format 'yyyyMMddTHHmmssfff'
+      Copy-Item -LiteralPath $target -Destination "$target.$stamp.bak"
+    }
+    Copy-Item -LiteralPath $source -Destination $target -Force
+  }
   if (-not (Test-Path (Join-Path $workspace 'MEMORY.md'))) { New-Item -ItemType File -Path (Join-Path $workspace 'MEMORY.md') | Out-Null }
   $entries[$role] = @{ workspace = $workspace; agentDir = (Join-Path $state "agents\$role\agent"); identity = @{ name = $role }; default = ($role -eq 'phanes') }
 }

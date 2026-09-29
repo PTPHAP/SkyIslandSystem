@@ -12,9 +12,9 @@
 
 ## 2. 构建与安装 Paper 插件
 
-下载 Release JAR，或下载部署包 ZIP 并取出其中的 JAR，放入 Paper 的 `plugins/`，启动一次服务器，生成 `plugins/SkyIslandSystem/config.yml`，然后正常停止。ZIP 还包含五份 `personas/` 和本文档。管理员权限节点为 `skyisland.admin`；OP 默认拥有。插件即使没有配置 OpenClaw 也能启动、显示指标和运行本地防护。
+下载 Release JAR，或下载部署包 ZIP 并取出其中的 JAR，放入 Paper 的 `plugins/`，启动一次服务器，生成 `plugins/SkyIslandSystem/config.yml`，然后正常停止。部署资料还包含五位角色各自的 `AGENTS.md` 操作协议、`SOUL.md` 人格文件和 [原著依据表](lore/README.md)。管理员权限节点为 `skyisland.admin`；OP 默认拥有。插件即使没有配置 OpenClaw 也能启动、显示指标和运行本地防护。
 
-从旧版升级时先备份 `plugins/SkyIslandSystem/`，停服后移走旧版 JAR，避免两个版本同时加载。升级后重新运行部署脚本，将新版五份 `AGENTS.md` 同步到专用 OpenClaw 工作区；脚本不会删除各角色的 `MEMORY.md`。若旧法令的高频阈值过低，插件会将原文件保存为 `laws.pre-v0.3.0.properties` 并恢复安全默认值；启动日志会提醒管理员。
+从旧版升级时先备份 `plugins/SkyIslandSystem/`，停服后移走旧版 JAR，避免两个版本同时加载。人格文档更新不改变 Paper JAR 版本；重新运行部署脚本会把五套 `AGENTS.md`、`SOUL.md` 同步到专用 OpenClaw 工作区。已有文件若与新版不同，会先在同一工作区留下带时间戳的 `.bak`；各角色的 `MEMORY.md` 保持原样。重启专用 Gateway 后分别向五位角色提问，确认新文档已加载。若旧法令的高频阈值过低，插件会将原文件保存为 `laws.pre-v0.3.0.properties` 并恢复安全默认值；启动日志会提醒管理员。
 
 **离线服首次启用 v0.5.0**：新玩家入服后输入无参数命令 `/skyisland register`，再按提示在**下一条普通聊天**输入 `密码 重复密码`。有旧存档的玩家须由服主在面板的**服务器控制台**执行 `skyisland claim <原玩家名或UUID>`，核对 UUID 与旧存档一致，把控制台显示的一次性认领码私下交给该玩家。玩家随后输入 `/skyisland register`，下一条普通聊天输入 `密码 重复密码 认领码`；重进输入 `/skyisland login`，下一条普通聊天输入密码。已登录后改密用 `/skyisland passwd`，下一条普通聊天输入 `旧密码 新密码 重复新密码`。**绝不要把密码写进斜杠命令**，Paper 会在插件处理之前记录命令。密码须为 12 至 64 字，并且与其他网站和服务器的密码不同。插件会取消并遮盖密码聊天事件，但其他插件仍可能读取聊天事件，须检查其日志行为。切勿把密码或认领码发给 OpenClaw。将 `plugins/SkyIslandSystem/identities.properties` 与世界存档一起备份；身份文件损坏时插件会拒绝离线玩家登录，不会自动清空账号。
 
@@ -42,7 +42,9 @@ powershell -File deploy/windows.ps1 -PaperRoot 'D:\1.20.1paper' -ModelId '提供
 ./deploy/linux.sh /srv/paper-1.20.1 '提供商/模型ID'
 ```
 
-脚本使用私有状态目录 `~/.openclaw-skyisland`、端口 `127.0.0.1:19789`，生成五个独立 Agent 工作区与会话目录，并启用会话记忆 hook。它设置最小工具权限、关闭跨 Agent 会话工具，校验五个 Agent 的名称与隔离配置。脚本末尾打印“配置已生成”只代表**本地配置检查**，不代表模型请求或 Paper 联通已经成功。
+脚本使用私有状态目录 `~/.openclaw-skyisland`、端口 `127.0.0.1:19789`，生成五个独立 Agent 工作区与会话目录，并启用会话记忆 hook。每个工作区分别加载 `AGENTS.md` 的当前动作协议和 `SOUL.md` 的人格、语气与判断习惯；脚本设置最小工具权限、关闭跨 Agent 会话工具，校验五个 Agent 的名称与隔离配置。脚本末尾打印“配置已生成”只代表**本地配置检查**，不代表模型请求或 Paper 联通已经成功。
+
+若已有隔离实例使用自定义状态目录，先在该实例下查看 `openclaw config get agents.entries --json`，核对五个角色的实际 `workspace`。把对应角色的 `AGENTS.md`、`SOUL.md` 备份后复制到该工作区，不要按本教程的默认路径猜测，也不要覆盖 `MEMORY.md`。重启该实例的 Gateway，再执行下方人格验收用例：[五角色同案测试](personas/SMOKE_TEST.md)。
 
 在专用账号中为模型配置凭证，必须指向脚本生成的同一个状态目录。Windows PowerShell：
 

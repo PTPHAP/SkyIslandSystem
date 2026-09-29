@@ -38,7 +38,14 @@ export OPENCLAW_CONFIG_PATH="$STATE/openclaw.json"
 if [[ ! -f "$OPENCLAW_CONFIG_PATH" ]]; then openclaw setup --baseline; fi
 for role in phanes ronova naberius istaroth asmoday; do
   install -d -m 700 "$STATE/workspaces/$role"
-  install -m 600 "$ROOT/personas/$role/AGENTS.md" "$STATE/workspaces/$role/AGENTS.md"
+  for name in AGENTS.md SOUL.md; do
+    source="$ROOT/personas/$role/$name"
+    target="$STATE/workspaces/$role/$name"
+    if [[ -f "$target" ]] && ! cmp -s "$source" "$target"; then
+      cp -p -- "$target" "$target.$(date -u +%Y%m%dT%H%M%S%N).bak"
+    fi
+    install -m 600 "$source" "$target"
+  done
   [[ -f "$STATE/workspaces/$role/MEMORY.md" ]] || install -m 600 /dev/null "$STATE/workspaces/$role/MEMORY.md"
 done
 if [[ ! -f "$STATE/gateway.token" ]]; then
