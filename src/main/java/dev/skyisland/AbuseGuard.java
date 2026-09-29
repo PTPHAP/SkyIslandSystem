@@ -30,16 +30,18 @@ import org.bukkit.inventory.EquipmentSlot;
 
 /** Deterministic rate guard for server stability abuse. This is not a general cheat detector. */
 final class AbuseGuard implements Listener, AutoCloseable {
-    private static final long BAN_MILLIS = 30L * 60 * 1000;
     private final SkyIslandPlugin plugin;
+    private final LawBook laws;
     private final Path banFile;
     private final Path evidenceFile;
     private final Map<UUID, Long> bans = new ConcurrentHashMap<>();
     private final Map<String, WindowCounter> windows = new ConcurrentHashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private long lastIncidentAt;
 
-    AbuseGuard(SkyIslandPlugin plugin) {
+    AbuseGuard(SkyIslandPlugin plugin, LawBook laws) {
         this.plugin = plugin;
+        this.laws = laws;
         banFile = plugin.getDataFolder().toPath().resolve("guard-bans.properties");
         evidenceFile = plugin.getDataFolder().toPath().resolve("guard-evidence.log");
         if (!Files.exists(banFile)) return;
@@ -73,16 +75,16 @@ final class AbuseGuard implements Listener, AutoCloseable {
     public void place(BlockPlaceEvent event) {
         Player p = event.getPlayer();
         if (p.hasPermission("skyisland.admin")) return;
-        if (hit(p, "place", 60_000, 600, event.getBlock().getLocation().toVector().toString())) event.setCancelled(true);
+        if (hit(p, "place", event.getBlock().getLocation().toVector().toString())) event.setCancelled(true);
         if (event.getBlock().getType() == Material.TNT
-            && hit(p, "tnt", 30_000, 32, event.getBlock().getLocation().toVector().toString())) event.setCancelled(true);
+            && hit(p, "tnt", event.getBlock().getLocation().toVector().toString())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void breakBlock(BlockBreakEvent event) {
         Player p = event.getPlayer();
         if (!p.hasPermission("skyisland.admin")
-            && hit(p, "break", 60_000, 900, event.getBlock().getLocation().toVector().toString())) event.setCancelled(true);
+            && hit(p, "break", event.getBlock().getLocation().toVector().toString())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -92,14 +94,14 @@ final class AbuseGuard implements Listener, AutoCloseable {
         if (event.getHand() != EquipmentSlot.HAND) return;
         ItemStack item = event.getItem();
         if (item != null && item.getType().name().endsWith("_SPAWN_EGG")
-            && hit(p, "spawn-egg", 30_000, 64, p.getLocation().toVector().toString())) event.setCancelled(true);
+            && hit(p, "spawn-egg", p.getLocation().toVector().toString())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void command(PlayerCommandPreprocessEvent event) {
         Player p = event.getPlayer();
         if (!p.hasPermission("skyisland.admin")
-            && hit(p, "command", 30_000, 120, p.getLocation().toVector().toString())) event.setCancelled(true);
+            && hit(p, "command", p.getLocation().toVector().toString())) event.setCancelled(true);
     }
 
     @EventHandler public void quit(PlayerQuitEvent event) {
@@ -107,24 +109,29 @@ final class AbuseGuard implements Listener, AutoCloseable {
         windows.keySet().removeIf(key -> key.startsWith(prefix));
     }
 
-    private boolean hit(Player player, String signal, long windowMillis, int limit, String location) {
+    private boolean hit(Player player, String signal, String location) {
+        LawBook.Rule rule = laws.rule(signal);
+        long windowMillis = rule.windowSeconds() * 1000L;
+        int limit = rule.limit();
         long now = System.currentTimeMillis();
         String key = player.getUniqueId() + ":" + signal;
         int count = windows.computeIfAbsent(key, ignored -> new WindowCounter()).add(now, windowMillis);
         if (count <= limit) return false;
-        if (count == limit + 1) enforce(player, signal, count, windowMillis, location);
+        if (count == limit + 1) enforce(player, signal, count, windowMillis, location, rule);
         return true;
     }
 
-    private void enforce(Player player, String signal, int count, long windowMillis, String location) {
+    private void enforce(Player player, String signal, int count, long windowMillis, String location, LawBook.Rule rule) {
         boolean verifiedIdentity = plugin.getServer().getOnlineMode();
-        long expiry = System.currentTimeMillis() + BAN_MILLIS;
+        long expiry = System.currentTimeMillis() + rule.banMinutes() * 60_000L;
+        lastIncidentAt = System.currentTimeMillis();
         if (verifiedIdentity) bans.put(player.getUniqueId(), expiry);
         String evidence = Instant.now() + " uuid=" + player.getUniqueId() + " name=" + player.getName()
-            + " signal=" + signal + " count=" + count + " window-ms=" + windowMillis
+            + " signal=" + signal + " law-version=" + rule.version() + " count=" + count + " window-ms=" + windowMillis
             + " world=" + player.getWorld().getName() + " location=" + location
             + " expires=" + (verifiedIdentity ? Instant.ofEpochMilli(expiry) : "none-offline-mode");
         plugin.audit((verifiedIdentity ? "guard-ban " : "guard-kick ") + evidence);
+        plugin.reviewIncident(signal, evidence);
         plugin.getServer().getOnlinePlayers().stream().filter(p -> p.hasPermission("skyisland.admin"))
             .forEach(p -> p.sendMessage(ChatColor.GOLD + "天空岛已" + (verifiedIdentity ? "临时封禁" : "踢出")
                 + player.getName() + "；证据 /skyisland evidence " + player.getUniqueId()));
@@ -135,6 +142,27 @@ final class AbuseGuard implements Listener, AutoCloseable {
         });
         if (verifiedIdentity) save();
         player.kickPlayer(ChatColor.RED + "天空岛稳定性防护：异常高频行为已被拦截。联系管理员查看证据。");
+    }
+
+    boolean hasRecentIncident() { return System.currentTimeMillis() - lastIncidentAt < 5 * 60_000L; }
+
+    String riskSummary() {
+        StringBuilder out = new StringBuilder("接近防护阈值的玩家：");
+        int shown = 0;
+        long now = System.currentTimeMillis();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            for (String signal : new String[]{"place", "break", "tnt", "spawn-egg", "command"}) {
+                WindowCounter counter = windows.get(player.getUniqueId() + ":" + signal);
+                if (counter == null) continue;
+                LawBook.Rule rule = laws.rule(signal);
+                int count = counter.count(now, rule.windowSeconds() * 1000L);
+                if (count < rule.limit() / 2) continue;
+                out.append(" ").append(player.getName()).append("/").append(signal)
+                    .append("=").append(count).append("/").append(rule.limit());
+                if (++shown == 5) return out.toString();
+            }
+        }
+        return shown == 0 ? out.append("无").toString() : out.toString();
     }
 
     String evidence(String identity) {

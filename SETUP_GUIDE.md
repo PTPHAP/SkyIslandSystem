@@ -1,6 +1,6 @@
 # 天空岛体系部署教程
 
-此教程面向**一台** Paper 1.20.1 服务器。源码仓库：[PTPHAP/SkyIslandSystem](https://github.com/PTPHAP/SkyIslandSystem)；JAR 从 [v0.1.1 Release](https://github.com/PTPHAP/SkyIslandSystem/releases/tag/v0.1.1) 下载。部署时不要把模型密钥、Gateway token、`secrets.yml` 发进聊天。若希望让 OpenClaw 代为执行，把 [DEPLOY_PROMPT.md](DEPLOY_PROMPT.md) 整段交给它，并向它提供目标机器的 Paper 路径、操作权限和模型连接方式。
+此教程面向**一台** Paper 1.20.1 服务器。源码仓库：[PTPHAP/SkyIslandSystem](https://github.com/PTPHAP/SkyIslandSystem)；JAR 从 [v0.2.0 Release](https://github.com/PTPHAP/SkyIslandSystem/releases/tag/v0.2.0) 下载。部署时不要把模型密钥、Gateway token、`secrets.yml` 发进聊天。若希望让 OpenClaw 代为执行，把 [DEPLOY_PROMPT.md](DEPLOY_PROMPT.md) 整段交给它，并向它提供目标机器的 Paper 路径、操作权限和模型连接方式。
 
 ## 1. 准备信息
 
@@ -8,11 +8,13 @@
 - 目标机器上有 Java 17+、Node 24.16+ 或 26.1+、至少 2 GiB 可用空间。当前开发机的 Node 22 **不能**运行新版 OpenClaw；对接时要先升级或给专用账号安装受支持的 Node。
 - 准备模型的 `提供商/模型ID` 和该提供商的凭证。凭证只配置在专用 OpenClaw 账号中。插件只持有独立 Gateway token。
 - 明确整服备份目录和服务器重启方式。插件既不做整服备份也不接管重启；如果没有现成机制，报告缺项，复杂方块编辑保持不可确认。
-- 生产服若使用 `online-mode=false`，插件只踢出高频破坏连接并保留证据，不按可冒用的玩家身份自动临时封禁。`online-mode=true` 时自动封禁 30 分钟。
+- 生产服若使用 `online-mode=false`，插件只踢出高频破坏连接并保留证据，不按可冒用的玩家身份自动临时封禁。`online-mode=true` 时默认封禁 30 分钟；法涅斯可在法令允许的 1-1440 分钟范围内调整。
 
 ## 2. 构建与安装 Paper 插件
 
 下载 Release JAR，放入 Paper 的 `plugins/`，启动一次服务器，生成 `plugins/SkyIslandSystem/config.yml`，然后正常停止。管理员权限节点为 `skyisland.admin`；OP 默认拥有。插件即使没有配置 OpenClaw 也能启动、显示指标和运行本地防护。
+
+从 v0.1.1 升级时先备份 `plugins/SkyIslandSystem/`，停服后移走旧版 JAR，避免两个版本同时加载。升级后重新运行部署脚本，将新版五份 `AGENTS.md` 同步到专用 OpenClaw 工作区；脚本不会删除各角色的 `MEMORY.md`。新法令与纪律文件由插件在首次实际调整后生成。
 
 如需自己构建：`git clone https://github.com/PTPHAP/SkyIslandSystem.git`，进入目录，在 Windows 执行 `gradlew.bat build`，Linux 执行 `./gradlew build`；JAR 在 `build/libs/`。Windows 中文路径上 Gradle 测试类加载失败时，可映射 ASCII 盘符，见 [README](README.md)。
 
@@ -52,9 +54,10 @@ powershell -File deploy/windows.ps1 -PaperRoot 'D:\1.20.1paper' -ModelId '提供
 
 1. `openclaw --profile skyisland config validate` 与 `openclaw --profile skyisland agents list` 均成功，且仅列出五位角色。用专用 token 请求 `/v1/models`，再向每个 `openclaw/<id>` 发一次实际模型请求；只有 HTTP 成功和有效内容才算已联通。
 2. 在 Paper 控制台运行 `skyisland status`，应显示 `OpenClaw=已响应`（至少在执行一次 `ask` 后）；分别运行 `skyisland ask phanes ...`、`ronova`、`naberius`、`istaroth`、`asmoday`。使用不同随机短语追问，验证各角色只记住自己的短语。
-3. 普通玩家不能使用 `/skyisland`；管理员可打开面板并查看指标、角色状态、提案 ID、最近操作记录。四影的动作必须在审计日志里先有提案和 `approver=phanes` 审批，再执行；无审批和错误 hash 不执行。
-4. 在**测试世界**编辑一个普通方块，记录撤销 ID；重启 Paper 后执行 `skyisland undo <ID>` 并核验方块恢复。箱子、红石、流体邻域的编辑应要求管理员确认；没有最近备份文件时确认被拒。方块随后被玩家修改时，撤销应拒绝覆盖。
-5. 在受控测试账号上验证高频防护的证据、到期时间与管理员解封。身份不可验证的离线模式只验证踢出与留证。关闭 Gateway 后，Paper 仍须正常运行且 `ask` 报请求失败。
-6. 用专用账号尝试读取旧 OpenClaw 状态目录，应被操作系统拒绝；检查本实例不能访问旧项目会话。确认现有备份与重启服务仍有效。
+3. 普通玩家可以使用 `/skyisland laws` 查看公开规划，但不能打开 `/skyisland` 管理面板；管理员可查看指标、角色状态、提案 ID、最近操作记录。四影的动作必须在审计日志里先有提案和 `approver=phanes` 审批，再执行；无审批和错误 hash 不执行。
+4. 让法涅斯在测试服公布 `declare_plan`，并在没有真实防护事件时尝试 `set_law` 的 `emergency:true`：后者应拒绝。普通 `set_law` 应公告并在约 5 分钟后生效。四影提出越界动作应留痕，连续越界后暂停提案；重启后纪律状态仍在。
+5. 在**测试世界**编辑一个普通方块，记录撤销 ID；重启 Paper 后执行 `skyisland undo <ID>` 并核验方块恢复。箱子、红石、流体邻域的编辑应要求管理员确认；没有最近备份文件时确认被拒。方块随后被玩家修改时，撤销应拒绝覆盖。
+6. 在受控测试账号上验证高频防护的证据、到期时间与管理员解封。身份不可验证的离线模式只验证踢出与留证。关闭 Gateway 后，Paper 仍须正常运行且 `ask` 报请求失败。
+7. 用专用账号尝试读取旧 OpenClaw 状态目录，应被操作系统拒绝；检查本实例不能访问旧项目会话。确认现有备份与重启服务仍有效。
 
 审计与证据位于 `plugins/SkyIslandSystem/audit.log`、`guard-evidence.log`、`snapshots/`。出现“未验证”或“请求失败”时，分别检查 Gateway 是否运行、模型凭证、端口、五个 Agent 的配置和私有 token；**不要把这些文件或凭证贴进聊天**。

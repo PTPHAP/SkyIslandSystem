@@ -7,8 +7,7 @@ author: SkyIslandSystem contributors
 commands:
   skyisland:
     description: 打开天空岛体系管理面板
-    usage: /skyisland [ask|status|pause|resume|confirm|undo|evidence|unban]
-    permission: skyisland.admin
+    usage: /skyisland [laws|ask|status|pause|resume|confirm|undo|evidence|unban]
 permissions:
   skyisland.admin:
     description: 管理天空岛体系

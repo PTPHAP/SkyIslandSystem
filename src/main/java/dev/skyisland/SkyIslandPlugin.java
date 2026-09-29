@@ -43,9 +43,12 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     private OpenClawClient client;
     private WorldActions actions;
     private AbuseGuard guard;
+    private LawBook laws;
+    private ShadowDiscipline discipline;
     private boolean paused;
     private String gatewayState = "未验证";
     private String alert = "正常";
+    private long lastIncidentReview;
 
     private record Pending(AgentRole from, WorldActions.Prepared action, String hash, long expiresAt) {}
 
@@ -62,13 +65,21 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             token, getConfig().getInt("request-timeout-seconds", 25));
         if (!client.configured()) gatewayState = "未配置";
         actions = new WorldActions(this);
-        guard = new AbuseGuard(this);
+        laws = new LawBook(getDataFolder().toPath());
+        discipline = new ShadowDiscipline(getDataFolder().toPath());
+        guard = new AbuseGuard(this, laws);
         Bukkit.getPluginManager().registerEvents(this, this);
         Bukkit.getPluginManager().registerEvents(guard, this);
         getCommand("skyisland").setExecutor(this);
         getCommand("skyisland").setTabCompleter(this);
         long period = Math.max(60, getConfig().getLong("review-interval-seconds", 600)) * 20;
         Bukkit.getScheduler().runTaskTimer(this, this::review, 20 * 60, period);
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            if (!paused) {
+                try { laws.activateDue(message -> Bukkit.broadcastMessage(ChatColor.GOLD + message), this::audit); }
+                catch (RuntimeException failure) { getLogger().severe("法令生效失败: " + failure.getMessage()); }
+            }
+        }, 20 * 20, 20 * 20);
         getLogger().info("天空岛体系已启动；OpenClaw " + (client.configured() ? "已配置" : "等待凭证"));
     }
 
@@ -84,7 +95,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         long disk = getDataFolder().getUsableSpace();
         alert = tps < 18 || disk < 5_000_000_000L ? "需要检查：TPS 或磁盘空间" : "正常";
         if (paused || !client.configured()) return;
-        String metrics = metrics();
+        String metrics = metrics() + "\n" + laws.summary() + "\n" + guard.riskSummary();
         for (AgentRole role : AgentRole.values())
             ask(role, "定期巡查。只根据这些聚合指标诊断你的领域；没有必要动作时 action 为 null。\n" + metrics, null);
     }
@@ -100,6 +111,23 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             .append(": chunks=").append(world.getLoadedChunks().length)
             .append(", entities=").append(world.getEntityCount()).append('\n');
         return out.toString();
+    }
+
+    void reviewIncident(String signal, String evidence) {
+        long now = System.currentTimeMillis();
+        if (paused || !client.configured() || now - lastIncidentReview < 60_000L) return;
+        lastIncidentReview = now;
+        AgentRole shadow = switch (signal) {
+            case "tnt" -> AgentRole.RONOVA;
+            case "spawn-egg" -> AgentRole.NABERIUS;
+            case "command" -> AgentRole.ISTAROTH;
+            default -> AgentRole.ASMODAY;
+        };
+        String prompt = "发生了玩家高频行为，保留独立判断；证据不足时不要提出动作。\n" + evidence
+            + "\n" + metrics() + "\n" + laws.summary();
+        ask(shadow, prompt, null);
+        ask(AgentRole.PHANES, "请审视这条真实防护证据及现行法令，自主判断是否需要调整法令；"
+            + "不要凭主观猜测处罚玩家。\n" + evidence + "\n" + laws.summary(), null);
     }
 
     private void ask(AgentRole role, String prompt, CommandSender sender) {
@@ -129,11 +157,24 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             if (p == null || !p.hash.equals(reply.approvalHash())) { audit("approval-rejected invalid-id-or-hash"); return; }
             audit("approval " + p.action.id() + " " + reply.approved()
                 + " approver=phanes proposer=" + p.from.id);
-            if (reply.approved()) executeOrQueue(p.action());
+            if (reply.approved()) {
+                String boundary = discipline.check(p.from, WorldActions.string(p.action.action(), "type"));
+                if (boundary.isEmpty()) executeOrQueue(p.action());
+                else audit("approval-rejected changed-shadow-scope id=" + p.action.id() + " reason=" + boundary);
+            }
         }
         if (reply.action() == null || paused) return;
         try {
-            WorldActions.Prepared prepared = actions.prepare(reply.action());
+            String type = WorldActions.string(reply.action(), "type");
+            if (role != AgentRole.PHANES) {
+                String boundary = discipline.check(role, type);
+                if (!boundary.isEmpty()) {
+                    if (boundary.startsWith("权能暂停")) audit("shadow-suspended from=" + role.id + " reason=" + boundary);
+                    else audit("shadow-violation " + discipline.violate(role, boundary));
+                    return;
+                }
+            }
+            WorldActions.Prepared prepared = prepareAction(reply.action());
             if (role == AgentRole.PHANES) {
                 audit("direct-action proposer=phanes id=" + prepared.id());
                 executeOrQueue(prepared);
@@ -145,7 +186,24 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             ask(AgentRole.PHANES, "影子 " + role.display + " 提议以下动作。你只能按世界治理规则审批，不能改写动作。"
                 + "\n提案 ID=" + prepared.id() + "\nHASH=" + hash + "\n动作=" + reply.action()
                 + "\n只在同意时返回 approval={id,hash,approved:true}；否则 false。", null);
-        } catch (RuntimeException invalid) { audit("invalid-proposal from=" + role.id + " reason=" + invalid.getMessage()); }
+        } catch (RuntimeException invalid) {
+            audit("invalid-proposal from=" + role.id + " reason=" + invalid.getMessage());
+        }
+    }
+
+    private WorldActions.Prepared prepareAction(JsonObject action) {
+        String type = WorldActions.string(action, "type");
+        switch (type) {
+            case "set_law" -> laws.validate(action);
+            case "declare_plan" -> laws.validatePlan(action);
+            case "set_shadow_scope" -> discipline.validateScope(action);
+            case "pardon_shadow" -> {
+                if (AgentRole.parse(WorldActions.string(action, "role")) == AgentRole.PHANES)
+                    throw new IllegalArgumentException("不能赦免法涅斯");
+            }
+            default -> { return actions.prepare(action); }
+        }
+        return new WorldActions.Prepared(UUID.randomUUID().toString().substring(0, 8), action.deepCopy(), "");
     }
 
     private void executeOrQueue(WorldActions.Prepared prepared) {
@@ -163,11 +221,29 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
 
     private void execute(WorldActions.Prepared prepared) {
         audit("action-start " + prepared.id() + " " + prepared.action());
-        actions.execute(prepared, result -> {
+        java.util.function.Consumer<String> report = result -> {
             audit("action-result " + prepared.id() + " " + result);
             Bukkit.getOnlinePlayers().stream().filter(p -> p.hasPermission("skyisland.admin"))
                 .forEach(p -> p.sendMessage(ChatColor.AQUA + "天空岛：" + result));
-        });
+        };
+        try {
+            String type = WorldActions.string(prepared.action(), "type");
+            switch (type) {
+                case "set_law" -> {
+                    String result = laws.apply(prepared.action(), guard.hasRecentIncident(), this::audit);
+                    if (result.startsWith("法涅斯法令 v")) Bukkit.broadcastMessage(ChatColor.GOLD + result);
+                    report.accept(result);
+                }
+                case "declare_plan" -> {
+                    String result = laws.declarePlan(prepared.action(), this::audit);
+                    if (result.startsWith("法涅斯公布")) Bukkit.broadcastMessage(ChatColor.LIGHT_PURPLE + result);
+                    report.accept(result);
+                }
+                case "set_shadow_scope" -> report.accept(discipline.setScope(prepared.action()));
+                case "pardon_shadow" -> report.accept(discipline.pardon(WorldActions.string(prepared.action(), "role")));
+                default -> actions.execute(prepared, report);
+            }
+        } catch (RuntimeException invalid) { report.accept("动作拒绝: " + invalid.getMessage()); }
     }
 
     private static String sha256(String value) {
@@ -189,6 +265,10 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     }
 
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length == 1 && args[0].equalsIgnoreCase("laws")) {
+            sender.sendMessage(laws.publicSummary());
+            return true;
+        }
         if (!sender.hasPermission("skyisland.admin")) { sender.sendMessage(ChatColor.RED + "无管理权限"); return true; }
         if (args.length == 0) {
             if (sender instanceof Player p) p.openInventory(menu());
@@ -198,12 +278,13 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         try {
             switch (args[0].toLowerCase()) {
                 case "status" -> sender.sendMessage(metrics() + "OpenClaw=" + gatewayState + ", paused=" + paused
-                    + ", guard-bans=" + guard.activeBans() + ", latest-edit=" + actions.latest());
+                    + ", guard-bans=" + guard.activeBans() + ", latest-edit=" + actions.latest()
+                    + "\n" + laws.summary() + discipline.summary());
                 case "ask" -> {
                     if (args.length < 3) throw new IllegalArgumentException("用法: /skyisland ask <角色英文ID> <问题>");
                     AgentRole role = AgentRole.parse(args[1]);
                     ask(role, "管理员提问：" + String.join(" ", Arrays.copyOfRange(args, 2, args.length))
-                        + "\n当前世界摘要：\n" + metrics(), sender);
+                        + "\n当前世界摘要：\n" + metrics() + "\n" + laws.summary(), sender);
                     sender.sendMessage("已联系 " + role.display);
                 }
                 case "pause" -> { paused = true; audit("ai-paused by=" + sender.getName()); sender.sendMessage("AI 世界动作已暂停"); }
@@ -231,15 +312,15 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
                     guard.unban(args[1], sender.getName());
                     sender.sendMessage("已解除天空岛临时封禁");
                 }
-                default -> sender.sendMessage("/skyisland [status|ask|pause|resume|confirm|undo|evidence|unban]");
+                default -> sender.sendMessage("/skyisland [laws|status|ask|pause|resume|confirm|undo|evidence|unban]");
             }
         } catch (Exception e) { sender.sendMessage(ChatColor.RED + e.getMessage()); }
         return true;
     }
 
     @Override public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (!sender.hasPermission("skyisland.admin")) return List.of();
-        if (args.length == 1) return List.of("status", "ask", "pause", "resume", "confirm", "undo", "evidence", "unban");
+        if (!sender.hasPermission("skyisland.admin")) return args.length == 1 ? List.of("laws") : List.of();
+        if (args.length == 1) return List.of("laws", "status", "ask", "pause", "resume", "confirm", "undo", "evidence", "unban");
         if (args.length == 2 && args[0].equalsIgnoreCase("ask"))
             return Arrays.stream(AgentRole.values()).map(r -> r.id).toList();
         return List.of();
