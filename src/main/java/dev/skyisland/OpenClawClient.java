@@ -8,6 +8,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 final class OpenClawClient {
@@ -27,6 +29,28 @@ final class OpenClawClient {
 
     boolean configured() { return !token.isBlank(); }
 
+    CompletableFuture<List<String>> missingAgents() {
+        if (!configured()) return CompletableFuture.failedFuture(new IllegalStateException("OpenClaw 凭证未配置"));
+        HttpRequest request = HttpRequest.newBuilder(endpoint.resolve("/v1/models")).timeout(timeout)
+            .header("Authorization", "Bearer " + token).GET().build();
+        return http.sendAsync(request, HttpResponse.BodyHandlers.ofString()).thenApply(response -> {
+            if (response.statusCode() != 200) throw new IllegalStateException(statusError(response.statusCode()));
+            try {
+                JsonArray models = JsonParser.parseString(response.body()).getAsJsonObject().getAsJsonArray("data");
+                List<String> missing = new ArrayList<>();
+                for (AgentRole role : AgentRole.values()) {
+                    boolean found = false;
+                    for (int i = 0; i < models.size(); i++)
+                        if (("openclaw/" + role.id).equals(models.get(i).getAsJsonObject().get("id").getAsString())) found = true;
+                    if (!found) missing.add(role.id);
+                }
+                return missing;
+            } catch (RuntimeException invalid) {
+                throw new IllegalStateException("OpenClaw 模型列表格式错误：检查专用实例日志", invalid);
+            }
+        });
+    }
+
     CompletableFuture<AgentReply> ask(AgentRole role, String text) {
         if (!configured()) return CompletableFuture.failedFuture(new IllegalStateException("OpenClaw 凭证未配置"));
         JsonObject body = new JsonObject();
@@ -45,11 +69,7 @@ final class OpenClawClient {
             .POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
         return http.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply(response -> {
-                if (response.statusCode() != 200) throw new IllegalStateException(switch (response.statusCode()) {
-                    case 401, 403 -> "OpenClaw HTTP " + response.statusCode() + "：检查专用 Gateway token";
-                    case 404 -> "OpenClaw HTTP 404：检查聊天接口和角色 Agent ID";
-                    default -> "OpenClaw HTTP " + response.statusCode() + "：检查专用实例日志与模型连接";
-                });
+                if (response.statusCode() != 200) throw new IllegalStateException(statusError(response.statusCode()));
                 try {
                     JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
                     String content = json.getAsJsonArray("choices").get(0).getAsJsonObject()
@@ -59,5 +79,13 @@ final class OpenClawClient {
                     throw new IllegalStateException("OpenClaw 回复格式错误：检查专用实例日志", invalid);
                 }
             });
+    }
+
+    private static String statusError(int code) {
+        return switch (code) {
+            case 401, 403 -> "OpenClaw HTTP " + code + "：检查专用 Gateway token";
+            case 404 -> "OpenClaw HTTP 404：检查 Gateway 接口和角色 Agent ID";
+            default -> "OpenClaw HTTP " + code + "：检查专用实例日志与模型连接";
+        };
     }
 }

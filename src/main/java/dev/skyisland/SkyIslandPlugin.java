@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -32,6 +33,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -48,12 +51,15 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
     private WorldActions actions;
     private AbuseGuard guard;
     private LawBook laws;
+    private OneLifeSeason season;
     private ShadowDiscipline discipline;
     private boolean paused;
     private String gatewayState = "未验证";
     private String gatewayDetail = "";
     private String alert = "正常";
     private long lastIncidentReview;
+    private long lastTimeAlert;
+    private int lowTpsSamples;
 
     private record Pending(AgentRole from, WorldActions.Prepared action, String hash, long expiresAt) {}
 
@@ -72,6 +78,8 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         actions = new WorldActions(this);
         laws = new LawBook(getDataFolder().toPath());
         if (laws.adjustedUnsafeRules()) getLogger().warning("旧法令的高频阈值过低，已备份原文件并恢复安全默认值");
+        season = new OneLifeSeason(getDataFolder().toPath());
+        if (!getServer().getOnlineMode()) getLogger().warning("玩家身份未验证：一命赛季不会启动或执行");
         discipline = new ShadowDiscipline(getDataFolder().toPath());
         guard = new AbuseGuard(this, laws);
         Bukkit.getPluginManager().registerEvents(this, this);
@@ -86,6 +94,8 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
                 catch (RuntimeException failure) { getLogger().severe("法令生效失败: " + failure.getMessage()); }
             }
         }, 20 * 20, 20 * 20);
+        Bukkit.getScheduler().runTaskTimer(this, this::checkSeason, 1, 20 * 20);
+        Bukkit.getScheduler().runTaskTimer(this, this::checkTickHealth, 20 * 20, 20 * 20);
         getLogger().info("天空岛体系已启动；OpenClaw " + (client.configured() ? "已配置" : "等待凭证"));
     }
 
@@ -105,9 +115,53 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             ask(AgentRole.PHANES, "连接恢复检查。只返回一句简短状态，不提出动作。", null);
             return;
         }
-        String metrics = metrics() + "\n" + laws.summary() + "\n" + guard.riskSummary();
+        String metrics = metrics() + "\n" + laws.summary() + "\n" + season.summary()
+            + "\n" + guard.riskSummary();
         for (AgentRole role : AgentRole.values())
-            ask(role, "定期巡查。只根据这些聚合指标诊断你的领域；没有必要动作时 action 为 null。\n" + metrics, null);
+            ask(role, "定期巡查。只根据这些聚合指标诊断你的领域；没有必要动作时 action 为 null。"
+                + (role == AgentRole.PHANES ? "可自主决定是否提前公告下一轮一命赛季。" : "")
+                + "\n" + metrics, null);
+    }
+
+    private void checkSeason() {
+        if (!getServer().getOnlineMode()) return;
+        try {
+            OneLifeSeason.Start started = season.activateDue(System.currentTimeMillis());
+            if (started == null) return;
+            audit("one-life-season-start number=" + started.number());
+            for (Player player : Bukkit.getOnlinePlayers())
+                if (started.restored().contains(player.getUniqueId())) restorePlayer(player);
+            announce("法涅斯开启一命赛季 " + started.number() + "；每位生存玩家只有一条命。", "新赛季已开始");
+        } catch (RuntimeException failure) { getLogger().severe("一命赛季启动失败: " + failure.getMessage()); }
+    }
+
+    private void checkTickHealth() {
+        double tps = Bukkit.getTPS()[0];
+        lowTpsSamples = tps < 16 ? lowTpsSamples + 1 : 0;
+        long now = System.currentTimeMillis();
+        if (lowTpsSamples < 3 || now - lastTimeAlert < 600_000L) return;
+        lastTimeAlert = now;
+        audit("time-warning tps=" + String.format("%.2f", tps));
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.sendTitle("§b时之执政 · 伊斯塔露", "§7世界运转迟滞，正在巡查", 10, 55, 15);
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 0.5f, 0.8f);
+        }
+        if (!paused && client.configured()) ask(AgentRole.ISTAROTH,
+            "持续低 TPS 告警，依据聚合指标诊断；证据不足时不要提出动作。\n" + metrics(), null);
+    }
+
+    private void restorePlayer(Player player) {
+        if (!season.restorationNeeded(player.getUniqueId())) return;
+        try {
+            if (!player.teleport(Bukkit.getWorlds().get(0).getSpawnLocation()))
+                throw new IllegalStateException("出生点传送失败");
+            player.setGameMode(GameMode.SURVIVAL);
+            season.markRestored(player.getUniqueId());
+            player.sendMessage("§a新赛季已开始，你的一命资格已恢复。");
+        } catch (RuntimeException failure) {
+            getLogger().severe("玩家一命资格恢复失败: " + player.getUniqueId() + " " + failure.getMessage());
+            player.kickPlayer("天空岛资格恢复失败，请联系管理员检查服务器日志。");
+        }
     }
 
     private String metrics() {
@@ -184,18 +238,52 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         String cause = player.getLastDamageCause() == null ? "未知" : player.getLastDamageCause().getCause().name();
         recentDeaths.put(player.getUniqueId(), cause);
         audit("player-death uuid=" + player.getUniqueId() + " cause=" + cause + " world=" + player.getWorld().getName());
+        if (getServer().getOnlineMode() && player.getGameMode() == GameMode.SURVIVAL) {
+            try {
+                if (season.recordDeath(player.getUniqueId()))
+                    audit("one-life-eliminated season=" + season.summary() + " uuid=" + player.getUniqueId());
+            } catch (RuntimeException failure) {
+                getLogger().severe("一命死亡记录失败: " + failure.getMessage());
+                player.kickPlayer("天空岛死亡记录失败，请联系管理员检查服务器日志。");
+            }
+        }
     }
 
     @EventHandler public void respawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
         String cause = recentDeaths.remove(player.getUniqueId());
         if (cause == null) return;
+        if (season.eliminated(player.getUniqueId())) player.setGameMode(GameMode.SPECTATOR);
         Bukkit.getScheduler().runTaskLater(this, () -> {
             if (!player.isOnline()) return;
-            player.sendTitle("§5死之执政 · 若娜瓦", "§7死亡已记入天空岛的纪事", 10, 55, 15);
+            boolean eliminated = season.eliminated(player.getUniqueId());
+            if (eliminated) player.setGameMode(GameMode.SPECTATOR);
+            player.sendTitle("§5死之执政 · 若娜瓦", eliminated ? "§7此赛季的生命已尽" : "§7死亡已记入天空岛的纪事", 10, 55, 15);
             player.playSound(player.getLocation(), Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.6f, 0.7f);
-            player.sendMessage("§7若娜瓦记录了你的死亡（原因：" + cause + "）。天空岛已将此事记入纪事。");
+            player.sendMessage("§7若娜瓦记录了你的死亡（原因：" + cause + "）。"
+                + (eliminated ? "你将以旁观者身份等待下一赛季。" : "天空岛已将此事记入纪事。"));
         }, 2L);
+    }
+
+    @EventHandler public void join(PlayerJoinEvent event) {
+        if (!getServer().getOnlineMode()) return;
+        Player player = event.getPlayer();
+        if (season.restorationNeeded(player.getUniqueId())) restorePlayer(player);
+        else if (season.eliminated(player.getUniqueId())) {
+            player.setGameMode(GameMode.SPECTATOR);
+            player.sendMessage("§5你的一命资格已在本赛季耗尽。" + season.summary());
+        }
+    }
+
+    @EventHandler public void changedWorld(PlayerChangedWorldEvent event) {
+        Player player = event.getPlayer();
+        audit("player-world-change uuid=" + player.getUniqueId() + " from=" + event.getFrom().getName()
+            + " to=" + player.getWorld().getName());
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            if (!player.isOnline()) return;
+            player.sendTitle("§5空之执政 · 阿斯莫代", "§7维度边界已通过", 10, 45, 10);
+            player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 0.35f, 1.1f);
+        }, 1L);
     }
 
     @EventHandler public void playerQuit(PlayerQuitEvent event) {
@@ -247,6 +335,10 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         String type = WorldActions.string(action, "type");
         switch (type) {
             case "set_law" -> laws.validate(action);
+            case "schedule_season" -> {
+                if (!getServer().getOnlineMode()) throw new IllegalArgumentException("一命赛季要求已验证的玩家身份");
+                season.validate(action);
+            }
             case "declare_plan" -> laws.validatePlan(action);
             case "set_shadow_scope" -> discipline.validateScope(action);
             case "pardon_shadow" -> {
@@ -291,6 +383,13 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
                     if (result.startsWith("法涅斯公布")) announce(result, "神圣规划已公布");
                     report.accept(result);
                 }
+                case "schedule_season" -> {
+                    if (!getServer().getOnlineMode()) throw new IllegalArgumentException("一命赛季要求已验证的玩家身份");
+                    String result = season.schedule(prepared.action(), System.currentTimeMillis());
+                    audit("one-life-season-scheduled " + result);
+                    announce(result, "下一赛季已公告");
+                    report.accept(result);
+                }
                 case "set_shadow_scope" -> report.accept(discipline.setScope(prepared.action()));
                 case "pardon_shadow" -> report.accept(discipline.pardon(WorldActions.string(prepared.action(), "role")));
                 default -> actions.execute(prepared, report);
@@ -303,6 +402,15 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
             return java.util.HexFormat.of().formatHex(digest);
         } catch (Exception impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    private static String diagnosticError(Throwable error) {
+        Throwable cause = error instanceof java.util.concurrent.CompletionException && error.getCause() != null
+            ? error.getCause() : error;
+        if (cause instanceof java.net.ConnectException) return "连接被拒绝；检查专用 Gateway 端口";
+        if (cause instanceof java.net.http.HttpTimeoutException) return "请求超时；检查专用 Gateway";
+        if (cause instanceof IllegalStateException) return cause.getMessage();
+        return cause.getClass().getSimpleName() + "；检查专用实例日志";
     }
 
     void audit(String entry) {
@@ -321,6 +429,10 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             sender.sendMessage(laws.publicSummary());
             return true;
         }
+        if (args.length == 1 && args[0].equalsIgnoreCase("season")) {
+            sender.sendMessage(season.summary() + (getServer().getOnlineMode() ? "" : "；当前玩家身份未验证，一命规则暂停"));
+            return true;
+        }
         if (!sender.hasPermission("skyisland.admin")) { sender.sendMessage(ChatColor.RED + "无管理权限"); return true; }
         if (args.length == 0) {
             if (sender instanceof Player p) p.openInventory(menu());
@@ -332,7 +444,17 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
                 case "status" -> sender.sendMessage(metrics() + "OpenClaw=" + gatewayState
                     + (gatewayDetail.isEmpty() ? "" : "，原因=" + gatewayDetail) + ", paused=" + paused
                     + ", guard-bans=" + guard.activeBans() + ", latest-edit=" + actions.latest()
-                    + "\n" + laws.summary() + discipline.summary());
+                    + "\n" + laws.summary() + "\n" + season.summary() + discipline.summary());
+                case "doctor" -> {
+                    sender.sendMessage("身份验证=" + (getServer().getOnlineMode() ? "开启" : "关闭；一命赛季不可启用")
+                        + "；OpenClaw=" + (client.configured() ? "正在检查五角色" : "未配置凭证"));
+                    if (client.configured()) client.missingAgents().whenComplete((missing, error) -> {
+                        if (!isEnabled()) return;
+                        Bukkit.getScheduler().runTask(this, () -> sender.sendMessage(error == null
+                            ? (missing.isEmpty() ? "五位 Agent 已列出；请用 /skyisland ask 分别验证模型回复与记忆" : "缺少 Agent：" + String.join(", ", missing))
+                            : "联通检查失败：" + diagnosticError(error)));
+                    });
+                }
                 case "ask" -> {
                     if (args.length < 3) throw new IllegalArgumentException("用法: /skyisland ask <角色英文ID> <问题>");
                     AgentRole role = AgentRole.parse(args[1]);
@@ -365,15 +487,15 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
                     guard.unban(args[1], sender.getName());
                     sender.sendMessage("已解除天空岛临时封禁");
                 }
-                default -> sender.sendMessage("/skyisland [laws|status|ask|pause|resume|confirm|undo|evidence|unban]");
+                default -> sender.sendMessage("/skyisland [laws|season|status|doctor|ask|pause|resume|confirm|undo|evidence|unban]");
             }
         } catch (Exception e) { sender.sendMessage(ChatColor.RED + e.getMessage()); }
         return true;
     }
 
     @Override public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (!sender.hasPermission("skyisland.admin")) return args.length == 1 ? List.of("laws") : List.of();
-        if (args.length == 1) return List.of("laws", "status", "ask", "pause", "resume", "confirm", "undo", "evidence", "unban");
+        if (!sender.hasPermission("skyisland.admin")) return args.length == 1 ? List.of("laws", "season") : List.of();
+        if (args.length == 1) return List.of("laws", "season", "status", "doctor", "ask", "pause", "resume", "confirm", "undo", "evidence", "unban");
         if (args.length == 2 && args[0].equalsIgnoreCase("ask"))
             return Arrays.stream(AgentRole.values()).map(r -> r.id).toList();
         return List.of();
@@ -408,6 +530,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             "§7" + (line.length() > 100 ? line.substring(0, 100) + "…" : line)));
         inventory.setItem(49, item(Material.SHIELD, "§b稳定性防护", "§7临时封禁: " + guard.activeBans(),
             "§7证据: /skyisland evidence <玩家>"));
+        inventory.setItem(48, item(Material.TOTEM_OF_UNDYING, "§6一命赛季", "§7" + season.summary()));
         return inventory;
     }
 

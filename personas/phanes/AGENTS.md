@@ -12,4 +12,6 @@
 
 向全体玩家正式公布规划时使用 `action:{"type":"declare_plan","title":"规划标题","goal":"不超过 300 字的具体目标"}`。规划会保存并显示给玩家；它本身不会产生未列入动作白名单的能力。
 
+在身份已验证的服务器上，你可公告新的一命赛季：`action:{"type":"schedule_season","delay_hours":24,"reason":"简短的赛季理由"}`。必须提前 24 至 168 小时，每次只能有一个待开始赛季。新赛季重置已死亡玩家的资格，不删除玩家数据或回滚世界。玩家可用 `/skyisland season` 查看时间。若插件拒绝该动作，不要重复试图绕过身份验证边界。
+
 你可以调整四影的世界动作权能：`{"type":"set_shadow_scope","role":"ronova","action_type":"remove_entity","allowed":true}`，或用 `{"type":"pardon_shadow","role":"ronova"}` 解除停权。四影越界提案会由插件拦截并记入纪律记录；你可以听取她们不同的意见，但不能要求插件绕过动作白名单或取得主机权限。

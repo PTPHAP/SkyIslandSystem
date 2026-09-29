@@ -8,7 +8,7 @@
 - 目标机器上有 Java 17+、Node 24.16+ 或 26.1+、至少 2 GiB 可用空间。当前开发机的 Node 22 **不能**运行新版 OpenClaw；对接时要先升级或给专用账号安装受支持的 Node。
 - 准备模型的 `提供商/模型ID` 和该提供商的凭证。凭证只配置在专用 OpenClaw 账号中。插件只持有独立 Gateway token。
 - 明确整服备份目录和服务器重启方式。插件既不做整服备份也不接管重启；如果没有现成机制，报告缺项，复杂方块编辑保持不可确认。
-- 生产服若使用 `online-mode=false`，插件只踢出高频破坏连接并保留证据，不按可冒用的玩家身份自动临时封禁。`online-mode=true` 时默认封禁 30 分钟；法涅斯可在法令允许的 1-1440 分钟范围内调整。
+- 生产服若使用 `online-mode=false`，插件只踢出高频破坏连接并保留证据，不按可冒用的玩家身份自动临时封禁，也不启用一命赛季。`online-mode=true` 时 TNT、刷怪蛋超限可首次临封；方块与命令超限首次踢出，24 小时内同类行为再次超限才临封。默认封禁 30 分钟；法涅斯可在法令允许的 1-1440 分钟范围内调整。
 
 ## 2. 构建与安装 Paper 插件
 
@@ -71,11 +71,12 @@ openclaw config validate
 ## 6. 真实验收
 
 1. 在上节设置 `OPENCLAW_STATE_DIR` 与 `OPENCLAW_CONFIG_PATH` 的专用账号终端中，`openclaw config validate` 与 `openclaw agents list` 均成功，且仅列出五位角色。用专用 token 请求 `/v1/models`，再向每个 `openclaw/<id>` 发一次实际模型请求；只有 HTTP 成功和有效内容才算已联通。
-2. 在 Paper 控制台运行 `skyisland status`，应显示 `OpenClaw=已响应`（至少在执行一次 `ask` 后）；分别运行 `skyisland ask phanes ...`、`ronova`、`naberius`、`istaroth`、`asmoday`。使用不同随机短语追问，验证各角色只记住自己的短语。
+2. 在 Paper 控制台运行 `skyisland doctor`，确认五角色均列出；再运行 `skyisland status`，分别运行 `skyisland ask phanes ...`、`ronova`、`naberius`、`istaroth`、`asmoday`。`doctor` 只检查列表，实际模型响应后 `OpenClaw` 才会显示“已响应”。使用不同随机短语追问，验证各角色只记住自己的短语。
 3. 普通玩家可以使用 `/skyisland laws` 查看公开规划，但不能打开 `/skyisland` 管理面板；在测试服死亡并复活后应看到若娜瓦标题与文字、听到原版音效。法涅斯公布规划时在线玩家应看到标题与音效。管理员可查看指标、角色状态、提案 ID、最近操作记录。四影的动作必须在审计日志里先有提案和 `approver=phanes` 审批，再执行；无审批和错误 hash 不执行。
 4. 让法涅斯在测试服公布 `declare_plan`，并在没有真实防护事件时尝试 `set_law` 的 `emergency:true`：后者应拒绝。普通 `set_law` 应公告并在约 5 分钟后生效。四影提出越界动作应留痕，连续越界后暂停提案；重启后纪律状态仍在。
 5. 在**测试世界**编辑一个普通方块，记录撤销 ID；重启 Paper 后执行 `skyisland undo <ID>` 并核验方块恢复。箱子、红石、流体邻域的编辑应要求管理员确认；没有最近备份文件时确认被拒。方块随后被玩家修改时，撤销应拒绝覆盖。
-6. 在受控测试账号上验证高频防护的证据、到期时间与管理员解封。身份不可验证的离线模式只验证踢出与留证。关闭 Gateway 后，Paper 仍须正常运行且 `ask` 报请求失败。
+6. 在受控测试账号上验证高频防护：TNT、刷怪蛋超限首次可临封；方块或命令超限首次只踢出，再次同类超限才临封。核验证据、到期时间与管理员解封。身份不可验证的离线模式只验证踢出与留证。关闭 Gateway 后，Paper 仍须正常运行且 `ask` 报请求失败。
 7. 用专用账号尝试读取旧 OpenClaw 状态目录，应被操作系统拒绝；检查本实例不能访问旧项目会话。确认现有备份与重启服务仍有效。
+8. 在 `online-mode=true` 的测试服让法涅斯提出 `schedule_season`，确认至少提前 24 小时公告；正式验收需等赛季开始后验证死亡旁观、重启保持资格、下赛季恢复。不可为了缩短测试而在正式世界直接编辑 `one-life.properties`。`online-mode=false` 时 `/skyisland season` 应显示规则暂停。
 
 审计与证据位于 `plugins/SkyIslandSystem/audit.log`、`guard-evidence.log`、`snapshots/`。出现“未验证”或“请求失败”时，分别检查 Gateway 是否运行、模型凭证、端口、五个 Agent 的配置和私有 token；**不要把这些文件或凭证贴进聊天**。

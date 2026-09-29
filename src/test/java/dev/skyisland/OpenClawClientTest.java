@@ -58,4 +58,22 @@ final class OpenClawClientTest {
             assertFalse(failure.getCause().getMessage().contains("private provider"));
         } finally { server.stop(0); }
     }
+
+    @Test void diagnosesMissingAgentsWithoutSendingModelRequest() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/models", exchange -> {
+            assertEquals("Bearer test-token", exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] body = "{\"data\":[{\"id\":\"openclaw/phanes\"},{\"id\":\"openclaw/ronova\"}]}"
+                .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            OpenClawClient client = new OpenClawClient("http://127.0.0.1:" + server.getAddress().getPort(), "test-token", 5);
+            assertEquals(java.util.List.of("naberius", "istaroth", "asmoday"),
+                client.missingAgents().get(5, TimeUnit.SECONDS));
+        } finally { server.stop(0); }
+    }
 }

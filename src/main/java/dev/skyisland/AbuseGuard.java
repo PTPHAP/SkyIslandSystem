@@ -37,6 +37,7 @@ final class AbuseGuard implements Listener, AutoCloseable {
     private final Path banFile;
     private final Path evidenceFile;
     private final Map<UUID, Long> bans = new ConcurrentHashMap<>();
+    private final Map<String, Long> strikes = new ConcurrentHashMap<>();
     private final Map<String, WindowCounter> windows = new ConcurrentHashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private long lastIncidentAt;
@@ -52,8 +53,12 @@ final class AbuseGuard implements Listener, AutoCloseable {
             data.load(in);
             for (String key : data.stringPropertyNames()) {
                 try {
-                    long expiry = Long.parseLong(data.getProperty(key));
-                    if (expiry > System.currentTimeMillis()) bans.put(UUID.fromString(key), expiry);
+                    long value = Long.parseLong(data.getProperty(key));
+                    if (key.startsWith("strike.")) {
+                        String incident = key.substring(7);
+                        UUID.fromString(incident.substring(0, incident.indexOf(':')));
+                        if (value > System.currentTimeMillis() - 86_400_000L) strikes.put(incident, value);
+                    } else if (value > System.currentTimeMillis()) bans.put(UUID.fromString(key), value);
                 } catch (RuntimeException ignored) { plugin.getLogger().warning("忽略无效的临时封禁记录"); }
             }
         } catch (IOException e) { plugin.getLogger().warning("无法读取临时封禁记录"); }
@@ -120,7 +125,13 @@ final class AbuseGuard implements Listener, AutoCloseable {
         String key = player.getUniqueId() + ":" + signal;
         int count = windows.computeIfAbsent(key, ignored -> new WindowCounter()).add(now, windowMillis);
         if (count == Math.max(1, limit * 3 / 4)) {
-            player.sendMessage(ChatColor.GOLD + "天空岛预警：你的 " + signal + " 操作接近当前防护阈值，请减缓频率。");
+            String authority = switch (signal) {
+                case "tnt" -> "若娜瓦";
+                case "spawn-egg" -> "纳贝里士";
+                case "command" -> "伊斯塔露";
+                default -> "阿斯莫代";
+            };
+            player.sendMessage(ChatColor.GOLD + authority + "预警：你的 " + signal + " 操作接近当前防护阈值，请减缓频率。");
             player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 0.5f, 1.0f);
         }
         if (count <= limit) return false;
@@ -130,17 +141,24 @@ final class AbuseGuard implements Listener, AutoCloseable {
 
     private void enforce(Player player, String signal, int count, long windowMillis, String location, LawBook.Rule rule) {
         boolean verifiedIdentity = plugin.getServer().getOnlineMode();
-        long expiry = System.currentTimeMillis() + rule.banMinutes() * 60_000L;
-        lastIncidentAt = System.currentTimeMillis();
-        if (verifiedIdentity) bans.put(player.getUniqueId(), expiry);
+        long now = System.currentTimeMillis();
+        String strikeKey = player.getUniqueId() + ":" + signal;
+        long previous = strikes.getOrDefault(strikeKey, 0L);
+        boolean ban = verifiedIdentity && PenaltyPolicy.temporaryBan(signal, previous, now);
+        long expiry = now + rule.banMinutes() * 60_000L;
+        lastIncidentAt = now;
+        if (verifiedIdentity) strikes.put(strikeKey, now);
+        if (ban) bans.put(player.getUniqueId(), expiry);
         String evidence = Instant.now() + " uuid=" + player.getUniqueId() + " name=" + player.getName()
             + " signal=" + signal + " law-version=" + rule.version() + " count=" + count + " window-ms=" + windowMillis
             + " world=" + player.getWorld().getName() + " location=" + location
-            + " expires=" + (verifiedIdentity ? Instant.ofEpochMilli(expiry) : "none-offline-mode");
-        plugin.audit((verifiedIdentity ? "guard-ban " : "guard-kick ") + evidence);
+            + " penalty=" + (ban ? "temporary-ban" : "kick")
+            + " previous-incident=" + (previous == 0 ? "none" : Instant.ofEpochMilli(previous))
+            + " expires=" + (ban ? Instant.ofEpochMilli(expiry) : "none");
+        plugin.audit((ban ? "guard-ban " : "guard-kick ") + evidence);
         plugin.reviewIncident(signal, evidence);
         plugin.getServer().getOnlinePlayers().stream().filter(p -> p.hasPermission("skyisland.admin"))
-            .forEach(p -> p.sendMessage(ChatColor.GOLD + "天空岛已" + (verifiedIdentity ? "临时封禁" : "踢出")
+            .forEach(p -> p.sendMessage(ChatColor.GOLD + "天空岛已" + (ban ? "临时封禁" : "踢出")
                 + player.getName() + "；证据 /skyisland evidence " + player.getUniqueId()));
         io.execute(() -> {
             try { Files.writeString(evidenceFile, evidence + System.lineSeparator(),
@@ -183,15 +201,18 @@ final class AbuseGuard implements Listener, AutoCloseable {
     void unban(String id, String by) {
         UUID uuid = UUID.fromString(id);
         bans.remove(uuid);
+        strikes.keySet().removeIf(key -> key.startsWith(uuid + ":"));
         save();
         plugin.audit("guard-unban uuid=" + uuid + " by=" + by);
     }
 
     private void save() {
         Map<UUID, Long> snapshot = Map.copyOf(bans);
+        Map<String, Long> incidentSnapshot = Map.copyOf(strikes);
         io.execute(() -> {
             Properties data = new Properties();
             snapshot.forEach((id, expiry) -> data.setProperty(id.toString(), Long.toString(expiry)));
+            incidentSnapshot.forEach((key, time) -> data.setProperty("strike." + key, Long.toString(time)));
             Path temp = banFile.resolveSibling(banFile.getFileName() + ".tmp");
             try (OutputStream out = Files.newOutputStream(temp)) { data.store(out, "SkyIslandSystem temporary bans"); }
             catch (IOException e) { plugin.getLogger().warning("临时封禁记录写入失败"); return; }
