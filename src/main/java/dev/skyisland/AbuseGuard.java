@@ -9,6 +9,8 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,7 +42,9 @@ final class AbuseGuard implements Listener, AutoCloseable {
     private final Map<UUID, Long> bans = new ConcurrentHashMap<>();
     private final Map<String, Long> strikes = new ConcurrentHashMap<>();
     private final Map<String, WindowCounter> windows = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> kickCooldown = new HashMap<>();
     private final Map<String, Integer> incidentCounts = new HashMap<>();
+    private final Map<String, Deque<Long>> recentIncidents = new HashMap<>();
     private final Map<String, Long> lastIncidentBySignal = new HashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
 
@@ -132,6 +136,8 @@ final class AbuseGuard implements Listener, AutoCloseable {
         long windowMillis = rule.windowSeconds() * 1000L;
         int limit = rule.limit();
         long now = System.currentTimeMillis();
+        if (kickCooldown.getOrDefault(player.getUniqueId(), 0L) > now) return true;
+        kickCooldown.remove(player.getUniqueId());
         String key = player.getUniqueId() + ":" + signal;
         int count = windows.computeIfAbsent(key, ignored -> new WindowCounter()).add(now, windowMillis);
         if (count == Math.max(1, limit * 3 / 4)) {
@@ -158,8 +164,16 @@ final class AbuseGuard implements Listener, AutoCloseable {
         long expiry = now + rule.banMinutes() * 60_000L;
         lastIncidentBySignal.put(signal, now);
         incidentCounts.merge(signal, 1, Integer::sum);
+        Deque<Long> recent = recentIncidents.computeIfAbsent(signal, ignored -> new ArrayDeque<>());
+        recent.addLast(now);
+        while (!recent.isEmpty() && now - recent.peekFirst() > 5 * 60_000L) recent.removeFirst();
         if (verifiedIdentity) strikes.put(strikeKey, now);
         if (ban) bans.put(player.getUniqueId(), expiry);
+        UUID uuid = player.getUniqueId();
+        long cooldownEnds = now + 30_000L;
+        kickCooldown.put(uuid, cooldownEnds);
+        plugin.getServer().getScheduler().runTaskLater(plugin,
+            () -> kickCooldown.remove(uuid, cooldownEnds), 20L * 30);
         String evidence = Instant.now() + " uuid=" + player.getUniqueId() + " name=" + player.getName()
             + " signal=" + signal + " law-version=" + rule.version() + " count=" + count + " window-ms=" + windowMillis
             + " world=" + player.getWorld().getName() + " location=" + location
@@ -182,6 +196,14 @@ final class AbuseGuard implements Listener, AutoCloseable {
 
     boolean hasRecentIncident(String signal) {
         return System.currentTimeMillis() - lastIncidentBySignal.getOrDefault(signal, 0L) < 5 * 60_000L;
+    }
+
+    boolean severeIncident(String signal) {
+        Deque<Long> recent = recentIncidents.get(signal);
+        if (recent == null) return false;
+        long now = System.currentTimeMillis();
+        while (!recent.isEmpty() && now - recent.peekFirst() > 5 * 60_000L) recent.removeFirst();
+        return !recent.isEmpty() && (signal.equals("tnt") || signal.equals("spawn-egg") || recent.size() >= 3);
     }
 
     int incidentCount(String signal) { return incidentCounts.getOrDefault(signal, 0); }

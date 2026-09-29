@@ -16,6 +16,7 @@ import java.util.function.Consumer;
 /** The executable part of Phanes's laws. AI text never becomes a command. */
 final class LawBook {
     private static final long NOTICE_MILLIS = 5 * 60_000L;
+    private static final long CHANGE_COOLDOWN_MILLIS = 30 * 60_000L;
     private static final Map<String, Rule> DEFAULTS = Map.of(
         "place", new Rule(600, 60, 30, 0),
         "break", new Rule(900, 60, 30, 0),
@@ -25,6 +26,7 @@ final class LawBook {
     private final Path file;
     private final Map<String, Rule> active = new LinkedHashMap<>(DEFAULTS);
     private final Map<String, Scheduled> pending = new LinkedHashMap<>();
+    private final Map<String, Long> lastChanged = new LinkedHashMap<>();
     private long version;
     private boolean adjustedUnsafeRules;
     private String planTitle = "守护世界稳定";
@@ -46,6 +48,7 @@ final class LawBook {
             validateText(planGoal, 300);
             for (String signal : DEFAULTS.keySet()) {
                 String prefix = signal + ".";
+                lastChanged.put(signal, Long.parseLong(data.getProperty(prefix + "changed-at", "0")));
                 if (data.containsKey(prefix + "limit")) active.put(signal, new Rule(
                     Integer.parseInt(data.getProperty(prefix + "limit")),
                     Integer.parseInt(data.getProperty(prefix + "window")),
@@ -99,6 +102,12 @@ final class LawBook {
         return out.toString();
     }
 
+    String constraints() {
+        return "法令合法范围：signal=place/break/tnt/spawn-egg/command；window_seconds=10..3600，ban_minutes=1..1440，limit<=10000。"
+            + "limit 下限=ceil(每分钟底线*window_seconds/60)，每分钟底线 place=300、break=450、tnt=32、spawn-egg=64、command=120。"
+            + "同一 signal 更改后冷却 30 分钟；不要重复提交相同法令。";
+    }
+
     String publicSummary() {
         StringBuilder out = new StringBuilder("法涅斯神圣规划 v" + version
             + "：" + planTitle + "。" + planGoal
@@ -115,6 +124,13 @@ final class LawBook {
         Rule proposed = new Rule(action.get("limit").getAsInt(), action.get("window_seconds").getAsInt(),
             action.get("ban_minutes").getAsInt(), version + 1);
         validateRule(signal, proposed);
+        Rule current = active.get(signal);
+        Scheduled scheduled = pending.get(signal);
+        if (scheduled == null ? !sameLimits(current, proposed) : !sameLimits(scheduled.rule, proposed)) {
+            long remaining = lastChanged.getOrDefault(signal, 0L) + CHANGE_COOLDOWN_MILLIS - System.currentTimeMillis();
+            if (remaining > 0) throw new IllegalArgumentException("法令 " + signal + " 冷却中，约 "
+                + ((remaining + 59_999) / 60_000) + " 分钟后可调整");
+        }
         String reason = required(action, "reason");
         if (reason.isBlank() || reason.length() > 120 || reason.indexOf('§') >= 0
             || reason.chars().anyMatch(Character::isISOControl))
@@ -134,7 +150,8 @@ final class LawBook {
         long minimum = (minimumPerMinute * (long) rule.windowSeconds + 59) / 60;
         if (rule.limit < minimum || rule.limit > 10_000 || rule.windowSeconds < 10
             || rule.windowSeconds > 3_600 || rule.banMinutes < 1 || rule.banMinutes > 1_440)
-            throw new IllegalArgumentException("法令超出可执行范围或高频阈值过低");
+            throw new IllegalArgumentException("法令参数不合法：" + signal + " 在 " + rule.windowSeconds
+                + " 秒内 limit 至少 " + minimum + " 且至多 10000；window_seconds 10..3600，ban_minutes 1..1440");
     }
 
     void validatePlan(JsonObject action) {
@@ -169,6 +186,10 @@ final class LawBook {
     }
 
     String apply(JsonObject action, boolean recentIncident, Consumer<String> audit) {
+        return apply(action, recentIncident, audit, "法涅斯");
+    }
+
+    String apply(JsonObject action, boolean recentIncident, Consumer<String> audit, String issuer) {
         validate(action);
         String signal = required(action, "signal");
         String reason = required(action, "reason");
@@ -185,21 +206,25 @@ final class LawBook {
             action.get("ban_minutes").getAsInt(), ++version);
         Rule previous = active.get(signal);
         Scheduled previouslyPending = pending.get(signal);
+        Long previousChange = lastChanged.get(signal);
         if (emergency) {
             active.put(signal, rule);
             pending.remove(signal);
         } else pending.put(signal, new Scheduled(rule, System.currentTimeMillis() + NOTICE_MILLIS, reason));
+        lastChanged.put(signal, System.currentTimeMillis());
         try { save(); }
         catch (RuntimeException failure) {
             active.put(signal, previous);
             if (previouslyPending == null) pending.remove(signal); else pending.put(signal, previouslyPending);
+            if (previousChange == null) lastChanged.remove(signal); else lastChanged.put(signal, previousChange);
             version--;
             throw failure;
         }
         audit.accept("law-" + (emergency ? "effective" : "scheduled") + " version=" + version
+            + " issuer=" + issuer
             + " signal=" + signal + " limit=" + rule.limit + " window=" + rule.windowSeconds
             + " ban-minutes=" + rule.banMinutes + " reason=" + reason);
-        return "法涅斯法令 v" + version + "：" + signal + "，" + reason
+        return issuer + "法令 v" + version + "：" + signal + "，" + reason
             + (emergency ? "（立即生效）" : "（5 分钟后生效）");
     }
 
@@ -234,6 +259,7 @@ final class LawBook {
         data.setProperty("plan.title", planTitle);
         data.setProperty("plan.goal", planGoal);
         active.forEach((signal, rule) -> writeRule(data, signal + ".", rule));
+        lastChanged.forEach((signal, changedAt) -> data.setProperty(signal + ".changed-at", Long.toString(changedAt)));
         pending.forEach((signal, scheduled) -> {
             writeRule(data, signal + ".pending.", scheduled.rule);
             data.setProperty(signal + ".pending.at", Long.toString(scheduled.effectiveAt));

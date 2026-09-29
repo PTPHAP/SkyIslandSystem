@@ -140,6 +140,15 @@ final class ShadowDiscipline {
         return out.toString();
     }
 
+    String scopeFor(AgentRole role) {
+        if (role == AgentRole.PHANES) return "四执政当前权能：" + summary();
+        State state = states.get(role);
+        return "你当前可提议的动作类型=" + state.allowed.stream().sorted().toList()
+            + (state.suspendedUntil > System.currentTimeMillis()
+                ? "；权能暂停至 " + Instant.ofEpochMilli(state.suspendedUntil) : "")
+            + "。其他动作会被插件拒绝并记违令。";
+    }
+
     private void save() {
         Properties data = new Properties();
         states.forEach((role, state) -> {

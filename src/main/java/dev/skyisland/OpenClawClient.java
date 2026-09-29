@@ -61,7 +61,7 @@ final class OpenClawClient {
         JsonArray messages = new JsonArray();
         JsonObject message = new JsonObject();
         message.addProperty("role", "user");
-        message.addProperty("content", text + "\n只返回 JSON：{\"message\":\"对管理员的话\",\"action\":null 或受限动作对象，\"approval\":null 或 {\"id\":\"...\",\"hash\":\"...\",\"approved\":true/false}}。不得输出 Markdown 代码块。set_time、set_weather、set_gamerule、set_border、teleport、spawn_entity、set_blocks 必须填写 world，值取自本次世界摘要；teleport 还需 player,x,y,z；spawn_entity 还需 entity,count,x,y,z；remove_entity 只用摘要中的可移除实体 uuid。证据不足时 action 为 null。");
+        message.addProperty("content", text + "\n只返回 JSON：{\"message\":\"简短回答\",\"action\":null 或受限动作对象，\"delegate\":null 或 {\"role\":\"ronova/naberius/istaroth/asmoday\"}，\"approval\":null 或 {\"id\":\"...\",\"hash\":\"...\",\"approved\":true/false}}。仅法涅斯审案时可填写 delegate。不得输出 Markdown 代码块。set_time、set_weather、set_gamerule、set_border、teleport、spawn_entity、set_blocks 必须填写 world，值取自本次世界摘要；teleport 还需 player,x,y,z；spawn_entity 还需 entity,count,x,y,z；remove_entity 只用摘要中的可移除实体 uuid。证据不足时 action 为 null。");
         messages.add(message);
         body.add("messages", messages);
         HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(timeout)

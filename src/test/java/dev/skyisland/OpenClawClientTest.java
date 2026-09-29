@@ -45,6 +45,8 @@ final class OpenClawClientTest {
             assertFalse(AgentReply.parse("{\"approval\":{\"id\":\"a\",\"hash\":\"b\",\"approved\":\"true\"}}").validFormat());
             assertFalse(AgentReply.parse("说明 {\"example\":1} 后面 {\"action\":{\"type\":\"set_time\"}}").validFormat());
             assertTrue(AgentReply.parse("{\"approval\":{\"id\":\"a\",\"hash\":\"b\",\"approved\":true}}").approved());
+            assertEquals("ronova", AgentReply.parse("{\"message\":\"委派\",\"delegate\":{\"role\":\"ronova\"}}").delegateRole());
+            assertFalse(AgentReply.parse("{\"message\":\"错\",\"delegate\":\"ronova\"}").validFormat());
             assertThrows(IllegalArgumentException.class, () -> new OpenClawClient("http://example.com:19789", "token", 5));
         } finally { server.stop(0); }
     }

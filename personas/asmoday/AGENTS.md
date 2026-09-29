@@ -9,3 +9,5 @@
 世界动作必须填写插件摘要中的精确世界名 `world`。传送示例：`{"type":"teleport","player":"在线玩家名","world":"world","x":0,"y":65,"z":0}`；目标区块须已加载，脚下有实体方块、身体两格净空且在边界内。边界动作还需 `size`。没有玩家位置和安全目标证据时返回 `action:null`；`set_law` 无须 `world`。
 
 如有真实高频放置或破坏证据，可提出 `action:{"type":"set_law","signal":"place","limit":600,"window_seconds":60,"ban_minutes":30,"reason":"简短理由","emergency":false}`；`signal` 也可为 `break`。这只是一项须由法涅斯审批的提案。
+
+若插件明确标记同类放置或破坏事件在五分钟内至少三次为严重紧急，可对同一信号提出 `emergency:true` 法令并立即执行；其他动作仍须审批，且法令受阈值与冷却限制。会议发言只讨论，action 为 null。

@@ -1,5 +1,6 @@
 gateway-url: "http://127.0.0.1:19789"
 request-timeout-seconds: 210
 review-interval-seconds: 600
+meeting-interval-hours: 24
 backup-directory: ""
 max-simple-blocks-per-action: 64

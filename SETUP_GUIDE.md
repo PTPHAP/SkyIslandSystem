@@ -12,7 +12,7 @@
 
 ## 2. 构建与安装 Paper 插件
 
-下载 Release JAR，放入 Paper 的 `plugins/`，启动一次服务器，生成 `plugins/SkyIslandSystem/config.yml`，然后正常停止。管理员权限节点为 `skyisland.admin`；OP 默认拥有。插件即使没有配置 OpenClaw 也能启动、显示指标和运行本地防护。
+下载 Release JAR，或下载部署包 ZIP 并取出其中的 JAR，放入 Paper 的 `plugins/`，启动一次服务器，生成 `plugins/SkyIslandSystem/config.yml`，然后正常停止。ZIP 还包含五份 `personas/` 和本文档。管理员权限节点为 `skyisland.admin`；OP 默认拥有。插件即使没有配置 OpenClaw 也能启动、显示指标和运行本地防护。
 
 从旧版升级时先备份 `plugins/SkyIslandSystem/`，停服后移走旧版 JAR，避免两个版本同时加载。升级后重新运行部署脚本，将新版五份 `AGENTS.md` 同步到专用 OpenClaw 工作区；脚本不会删除各角色的 `MEMORY.md`。若旧法令的高频阈值过低，插件会将原文件保存为 `laws.pre-v0.3.0.properties` 并恢复安全默认值；启动日志会提醒管理员。
 
@@ -83,6 +83,6 @@ Windows 本地 Paper 可把 `deploy/start-paper-windows.bat` 复制到 Paper 根
 5. 在**测试世界**编辑一个普通方块，记录撤销 ID；重启 Paper 后执行 `skyisland undo <ID>` 并核验方块恢复。箱子、红石、流体邻域的编辑应要求管理员确认；没有最近备份文件时确认被拒。方块随后被玩家修改时，撤销应拒绝覆盖。
 6. 在离线测试服验证：新玩家未注册时不能移动、破坏、放置、打开物品栏或执行其他命令；注册后可游戏，重进须再次登录；冒名使用旧玩家名但不知道密码时不能游戏；旧存档无认领码不能注册，码只能使用一次。测试高频防护时，TNT、刷怪蛋超限首次可临封；方块或命令超限首次只踢出，再次同类超限才临封，核验证据、到期时间与解封。关闭 Gateway 后 Paper 仍须运行。
 7. 用专用账号尝试读取旧 OpenClaw 状态目录，应被操作系统拒绝；检查本实例不能访问旧项目会话。确认现有备份与重启服务仍有效。
-8. 在已验证身份的测试服让法涅斯提出 `schedule_season`，确认至少提前 24 小时公告；正式验收需等赛季开始后验证死亡旁观、重启保持资格、下赛季恢复。检查同类高频事件触发四执政先调查、法涅斯后裁决，五分钟后审计记录复查结果。不可为了缩短测试而在正式世界直接编辑 `one-life.properties`。
+8. 在已验证身份的测试服让法涅斯提出 `schedule_season`，确认至少提前 24 小时公告；正式验收需等赛季开始后验证死亡旁观、重启保持资格、下赛季恢复。检查普通高频案件由法涅斯先审理、返回 `delegate` 后对应执政处理，提案仍由法涅斯审批；严重高频案件只允许执政收紧同信号紧急法令。用 `/skyisland meeting` 发起会议，检查五位角色发言、法涅斯结论和 `audit.log` 的 `meeting-*` 记录。不可为了缩短测试而在正式世界直接编辑 `one-life.properties`。
 
 审计与证据位于 `plugins/SkyIslandSystem/audit.log`、`guard-evidence.log`、`snapshots/`。出现“未验证”或“请求失败”时，分别检查 Gateway 是否运行、模型凭证、端口、五个 Agent 的配置和私有 token；**不要把这些文件或凭证贴进聊天**。

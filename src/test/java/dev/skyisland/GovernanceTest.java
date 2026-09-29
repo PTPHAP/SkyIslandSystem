@@ -62,6 +62,24 @@ class GovernanceTest {
         assertThrows(IllegalArgumentException.class, () -> laws.validate(action));
     }
 
+    @Test void lawCooldownAndThresholdFeedbackSurviveRestart() {
+        LawBook laws = new LawBook(folder);
+        var first = JsonParser.parseString("""
+            {"type":"set_law","signal":"tnt","limit":24,"window_seconds":30,
+             "ban_minutes":30,"reason":"紧急风险","emergency":true}
+            """).getAsJsonObject();
+        laws.apply(first, true, ignored -> {});
+        var changed = first.deepCopy();
+        changed.addProperty("limit", 28);
+        assertTrue(assertThrows(IllegalArgumentException.class,
+            () -> new LawBook(folder).validate(changed)).getMessage().contains("冷却"));
+        var invalid = first.deepCopy();
+        invalid.addProperty("limit", 1);
+        assertTrue(assertThrows(IllegalArgumentException.class,
+            () -> laws.validate(invalid)).getMessage().contains("至少 16"));
+        assertTrue(laws.constraints().contains("place=300"));
+    }
+
     @Test void existingUnsafeLawIsBackedUpAndResetOnUpgrade() throws Exception {
         Files.writeString(folder.resolve("laws.properties"), """
             version=1
