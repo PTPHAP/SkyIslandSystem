@@ -252,6 +252,11 @@ final class WorldActions implements AutoCloseable {
                         original.place(new Location(r.world, r.x1, r.y1, r.z1), false,
                             org.bukkit.block.structure.StructureRotation.NONE, org.bukkit.block.structure.Mirror.NONE,
                             0, 1.0f, new java.util.Random(0));
+                        if (!Objects.equals(metadata.getProperty("before"), signature(r))) {
+                            metadata.setProperty("state", "NEEDS_REVIEW");
+                            io.execute(() -> writeProperties(id, metadata));
+                            throw new IllegalStateException("快照恢复后方块状态不一致，需人工核查");
+                        }
                         metadata.setProperty("state", "ROLLED_BACK");
                         io.execute(() -> writeProperties(id, metadata));
                         report.accept("已恢复方块快照 " + id + "；邻块物理变化不在快照范围内");

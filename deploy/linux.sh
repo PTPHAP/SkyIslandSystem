@@ -14,10 +14,22 @@ PAPER_ROOT="$1"; MODEL="$2"
 [[ -f "$PAPER_ROOT/eula.txt" && -d "$PAPER_ROOT/plugins" ]] || { echo '缺少 Paper 路径、plugins 目录或 EULA 文件'; exit 1; }
 grep -q '^eula=true' "$PAPER_ROOT/eula.txt" || { echo 'EULA 未由服务器所有者接受'; exit 1; }
 [[ -f "$ROOT/build/libs/SkyIslandSystem-0.1.0.jar" ]] || { echo '请先构建 JAR'; exit 1; }
+command -v python3 >/dev/null && command -v openssl >/dev/null || { echo '需要 python3 和 openssl'; exit 1; }
+command -v java >/dev/null || { echo '需要 Java 17+'; exit 1; }
+JAVA_MAJOR="$(java -version 2>&1 | head -n 1 | sed -n 's/.*version "\([0-9]*\).*/\1/p')"
+[[ "$JAVA_MAJOR" =~ ^[0-9]+$ && "$JAVA_MAJOR" -ge 17 ]] || { echo 'Java 版本不受支持'; exit 1; }
+[[ -f "$PAPER_ROOT/Paper-1.20.1.jar" ]] || { echo '找不到 Paper-1.20.1.jar'; exit 1; }
+python3 - "$PAPER_ROOT/Paper-1.20.1.jar" <<'PY'
+import json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as jar:
+    assert json.loads(jar.read('version.json'))['id'] == '1.20.1'
+    assert b'io.papermc.paperclip.Main' in jar.read('META-INF/MANIFEST.MF')
+PY
+FREE_KIB="$(df -Pk "$PAPER_ROOT" | awk 'END {print $4}')"
+[[ "$FREE_KIB" =~ ^[0-9]+$ && "$FREE_KIB" -ge 2097152 ]] || { echo 'Paper 分区可用空间不足 2 GiB'; exit 1; }
 command -v node >/dev/null || { echo '需要 Node 24.16+ 或 26.1+'; exit 1; }
 node -e 'const v=process.versions.node.split(".").map(Number); if (!((v[0]===24&&v[1]>=16)||(v[0]===26&&v[1]>=1)||(v[0]>26))) process.exit(1)' || { echo 'Node 版本不受支持'; exit 1; }
 command -v openclaw >/dev/null || { echo '请在专用账号下安装 OpenClaw (npm install -g openclaw)，并完成模型凭证配置'; exit 1; }
-command -v python3 >/dev/null && command -v openssl >/dev/null || { echo '需要 python3 和 openssl'; exit 1; }
 STATE="$HOME/.openclaw-skyisland"
 mkdir -p "$STATE"
 chmod 700 "$STATE"
@@ -52,6 +64,10 @@ chmod 600 "$STATE/skyisland.patch.json"
 openclaw config patch --file "$STATE/skyisland.patch.json" --replace-path agents.entries --dry-run
 openclaw config patch --file "$STATE/skyisland.patch.json" --replace-path agents.entries
 openclaw config validate
+[[ "$(openclaw config get gateway.port)" == 19789 && "$(openclaw config get gateway.bind)" == loopback \
+   && "$(openclaw config get tools.profile)" == minimal \
+   && "$(openclaw config get tools.agentToAgent.enabled)" == false ]] || { echo 'Gateway 或工具隔离配置未生效'; exit 1; }
+openclaw config get agents.entries --json | python3 -c 'import json,sys; assert set(json.load(sys.stdin)) == {"phanes","ronova","naberius","istaroth","asmoday"}'
 openclaw hooks enable session-memory
 openclaw agents list
 printf 'gateway-token: "%s"\n' "$TOKEN" > "$STATE/plugin-secrets.yml"

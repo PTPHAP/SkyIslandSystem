@@ -22,6 +22,22 @@ if (-not (Test-Path (Join-Path $PaperRoot 'eula.txt'))) { throw 'Paper EULA 文�
 if (-not (Select-String -Path (Join-Path $PaperRoot 'eula.txt') -Pattern '^eula=true$' -Quiet)) { throw 'EULA 未由服务器所有者接受' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not (Test-Path (Join-Path $repo 'build\libs\SkyIslandSystem-0.1.0.jar'))) { throw '请先构建 JAR' }
+$javaVersion = (& java -version 2>&1) -join ' '
+if ($LASTEXITCODE -ne 0 -or $javaVersion -notmatch 'version "([0-9]+)') { throw '需要 Java 17+' }
+if ([int]$Matches[1] -lt 17) { throw 'Java 版本不受支持' }
+$paperJar = Join-Path $PaperRoot 'Paper-1.20.1.jar'
+if (-not (Test-Path $paperJar)) { throw '找不到 Paper-1.20.1.jar' }
+Add-Type -AssemblyName System.IO.Compression
+$zip = [IO.Compression.ZipFile]::OpenRead($paperJar)
+try {
+  $reader = [IO.StreamReader]::new($zip.GetEntry('version.json').Open())
+  try { $paperVersion = ($reader.ReadToEnd() | ConvertFrom-Json).id } finally { $reader.Dispose() }
+  $reader = [IO.StreamReader]::new($zip.GetEntry('META-INF/MANIFEST.MF').Open())
+  try { $manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+} finally { $zip.Dispose() }
+if ($paperVersion -ne '1.20.1' -or $manifest -notmatch 'io\.papermc\.paperclip\.Main') { throw 'Paper 版本检查失败' }
+$driveRoot = [IO.Path]::GetPathRoot((Resolve-Path $PaperRoot).Path)
+if ([IO.DriveInfo]::new($driveRoot).AvailableFreeSpace -lt 2GB) { throw 'Paper 分区可用空间不足 2 GiB' }
 $nodeVersion = (& node -p 'process.versions.node')
 if ($LASTEXITCODE -ne 0) { throw '请先安装 Node 24.16+ 或 26.1+' }
 $v = [version]$nodeVersion
@@ -61,9 +77,16 @@ if ($LASTEXITCODE -ne 0) { throw '配置预检失败；未应用配置' }
 if ($LASTEXITCODE -ne 0) { throw '配置写入失败' }
 & openclaw config validate
 if ($LASTEXITCODE -ne 0) { throw '配置验证失败' }
+if ((& openclaw config get gateway.port) -ne '19789' -or
+    (& openclaw config get gateway.bind) -ne 'loopback' -or
+    (& openclaw config get tools.profile) -ne 'minimal' -or
+    (& openclaw config get tools.agentToAgent.enabled) -ne 'false') { throw 'Gateway 或工具隔离配置未生效' }
+$agentNames = (& openclaw config get agents.entries --json | ConvertFrom-Json).PSObject.Properties.Name
+if (@(Compare-Object $agentNames @('phanes','ronova','naberius','istaroth','asmoday')).Count -ne 0) { throw 'Agent 数量或身份不正确' }
 & openclaw hooks enable session-memory
 if ($LASTEXITCODE -ne 0) { throw '独立记忆 hook 启用失败' }
 & openclaw agents list
+if ($LASTEXITCODE -ne 0) { throw 'Agent 列表检查失败' }
 [IO.File]::WriteAllText((Join-Path $state 'plugin-secrets.yml'), "gateway-token: `"$token`"`n", [Text.UTF8Encoding]::new($false))
 & icacls $state /inheritance:r /grant:r "${account}:(OI)(CI)F" 'SYSTEM:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw '私有状态目录 ACL 设置失败' }

@@ -5,5 +5,8 @@ build/
 *.log
 secrets.yml
 runtime/
+cache/
+libraries/
+versions/
 *.nbt
 *.tmp
