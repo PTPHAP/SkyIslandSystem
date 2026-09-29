@@ -195,7 +195,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
                     if (args.length != 2) throw new IllegalArgumentException("用法: /skyisland confirm <提案ID>");
                     Pending p = pending.get(args[1]);
                     if (p == null || !p.hash.equals("admin")) throw new IllegalArgumentException("没有此管理员待确认动作");
-                    if (!actions.recentBackup()) throw new IllegalArgumentException("最近 24 小时无可验证整服备份，拒绝复杂编辑");
+                    if (!actions.recentBackup()) throw new IllegalArgumentException("备份目录最近 24 小时无文件，拒绝复杂编辑；请人工核验备份有效性");
                     pending.remove(args[1]);
                     audit("admin-confirmed " + p.action.id() + " by=" + sender.getName());
                     execute(p.action());

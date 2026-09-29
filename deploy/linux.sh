@@ -17,6 +17,7 @@ grep -q '^eula=true' "$PAPER_ROOT/eula.txt" || { echo 'EULA 未由服务器所�
 command -v node >/dev/null || { echo '需要 Node 24.16+ 或 26.1+'; exit 1; }
 node -e 'const v=process.versions.node.split(".").map(Number); if (!((v[0]===24&&v[1]>=16)||(v[0]===26&&v[1]>=1)||(v[0]>26))) process.exit(1)' || { echo 'Node 版本不受支持'; exit 1; }
 command -v openclaw >/dev/null || { echo '请在专用账号下安装 OpenClaw (npm install -g openclaw)，并完成模型凭证配置'; exit 1; }
+command -v python3 >/dev/null && command -v openssl >/dev/null || { echo '需要 python3 和 openssl'; exit 1; }
 STATE="$HOME/.openclaw-skyisland"
 mkdir -p "$STATE"
 chmod 700 "$STATE"

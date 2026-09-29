@@ -18,6 +18,9 @@ final class OpenClawClient {
 
     OpenClawClient(String gatewayUrl, String token, int timeoutSeconds) {
         this.endpoint = URI.create(gatewayUrl.replaceAll("/+$", "") + "/v1/chat/completions");
+        if (!"http".equals(endpoint.getScheme()) || !("127.0.0.1".equals(endpoint.getHost())
+            || "localhost".equals(endpoint.getHost()) || "::1".equals(endpoint.getHost())))
+            throw new IllegalArgumentException("OpenClaw Gateway 必须使用本机回环地址");
         this.token = token;
         this.timeout = Duration.ofSeconds(timeoutSeconds);
     }
