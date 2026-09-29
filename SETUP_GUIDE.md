@@ -68,6 +68,10 @@ openclaw config validate
 
 在专用账号下运行脚本生成的 `~/.openclaw-skyisland/start-skyisland-gateway.ps1`（Windows）或 `~/.openclaw-skyisland/start-skyisland-gateway.sh`（Linux）。启动脚本会固定状态目录与配置路径，再启动 Gateway；确认本机 `127.0.0.1:19789` 可访问。生产部署应由管理员为该账号设置常驻服务或计划任务并调用这个启动脚本，确保重启后仍用同一状态目录、端口和凭证；不要让 Paper 插件负责拉起 Gateway。
 
+Windows 本地 Paper 可把 `deploy/start-paper-windows.bat` 复制到 Paper 根目录并命名 `start-server.bat`。它固定 UTF-8 输出；世界锁错误时给出日志和进程检查提示，不会盲目重试占用中的世界。需要开机自启时，管理员可运行 `powershell -File deploy/install-paper-task.ps1 -PaperRoot 'D:\1.20.1paper' -ServiceUser '<专用Paper账号>'`，交互输入该账号密码，随后用 `Start-ScheduledTask -TaskName SkyIslandPaper` 测试。任务仅在异常退出后重试三次；正常停服不会触发重启。Linux 可按 `deploy/paper.service.example` 修改 `User`、`WorkingDirectory` 与 JAR 路径后交给 systemd。面板服应使用面板自身的守护和自启动设置，不能运行这些主机级脚本时明确标为未配置。
+
+插件对专用 Gateway 使用 HTTP/1.1。新安装默认等待模型回复 210 秒；已有 `config.yml` 若仍写 25 秒，本版运行时至少使用 180 秒并在日志提醒。请按模型实际冷启动时间调整 `request-timeout-seconds`，重启 Paper 生效。若中文日志乱码，先用 UTF-8 启动脚本测试新的 `logs/latest.log`；旧日志和面板自行转码的控制台输出不会被插件追溯修复。
+
 脚本在私有状态目录生成 `plugin-secrets.yml`。由 Paper 管理员**在目标机器本地**复制到 `plugins/SkyIslandSystem/secrets.yml`，限制文件读取权限；不要复制 `openclaw.json` 或模型密钥。`plugins/SkyIslandSystem/config.yml` 中 `gateway-url` 保持默认的 `http://127.0.0.1:19789`，如需复杂编辑再将 `backup-directory` 指向已有备份目录。重启 Paper。
 
 ## 6. 真实验收

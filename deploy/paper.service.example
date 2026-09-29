@@ -1,0 +1,16 @@
+[Unit]
+Description=SkyIslandSystem Paper 1.20.1
+After=network.target
+
+[Service]
+Type=simple
+User=paper
+WorkingDirectory=/srv/paper
+Environment=LANG=C.UTF-8
+ExecStart=/usr/bin/java -Dfile.encoding=UTF-8 -Xms2G -Xmx4G -jar /srv/paper/Paper-1.20.1.jar nogui
+Restart=on-failure
+RestartSec=15
+SuccessExitStatus=0
+
+[Install]
+WantedBy=multi-user.target

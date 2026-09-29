@@ -20,6 +20,7 @@ final class OpenClawClientTest {
             JsonObject request = JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8))
                 .getAsJsonObject();
             assertEquals("Bearer test-token", exchange.getRequestHeaders().getFirst("Authorization"));
+            assertNull(exchange.getRequestHeaders().getFirst("Upgrade"));
             AgentRole role = AgentRole.parse(request.get("model").getAsString().substring("openclaw/".length()));
             seen.put(role, request.get("user").getAsString());
             String body = "{\"choices\":[{\"message\":{\"content\":\"{\\\"message\\\":\\\"ok\\\"}\"}}]}";
@@ -37,7 +38,12 @@ final class OpenClawClientTest {
             assertEquals(5, seen.size());
             for (AgentRole role : AgentRole.values()) assertEquals("skyisland:admin:" + role.id, seen.get(role));
             assertNull(AgentReply.parse("{bad").action());
+            assertFalse(AgentReply.parse("{bad").validFormat());
+            assertEquals("ok", AgentReply.parse("说明：\n```json\n{\"message\":\"ok\",\"action\":{\"type\":\"set_time\",\"world\":\"world\",\"ticks\":1000}}\n```\n完毕").message());
+            assertNotNull(AgentReply.parse("```json\n{\"message\":\"ok\",\"action\":{\"type\":\"set_time\"}}\n```").action());
             assertFalse(AgentReply.parse("{\"approval\":{\"id\":\"a\",\"hash\":\"b\",\"approved\":\"true\"}}").approved());
+            assertFalse(AgentReply.parse("{\"approval\":{\"id\":\"a\",\"hash\":\"b\",\"approved\":\"true\"}}").validFormat());
+            assertFalse(AgentReply.parse("说明 {\"example\":1} 后面 {\"action\":{\"type\":\"set_time\"}}").validFormat());
             assertTrue(AgentReply.parse("{\"approval\":{\"id\":\"a\",\"hash\":\"b\",\"approved\":true}}").approved());
             assertThrows(IllegalArgumentException.class, () -> new OpenClawClient("http://example.com:19789", "token", 5));
         } finally { server.stop(0); }
@@ -65,6 +71,7 @@ final class OpenClawClientTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/models", exchange -> {
             assertEquals("Bearer test-token", exchange.getRequestHeaders().getFirst("Authorization"));
+            assertNull(exchange.getRequestHeaders().getFirst("Upgrade"));
             byte[] body = "{\"data\":[{\"id\":\"openclaw/phanes\"},{\"id\":\"openclaw/ronova\"}]}"
                 .getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);

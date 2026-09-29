@@ -13,7 +13,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 final class OpenClawClient {
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+        .connectTimeout(Duration.ofSeconds(5)).build();
     private final URI endpoint;
     private final String token;
     private final Duration timeout;
@@ -60,7 +61,7 @@ final class OpenClawClient {
         JsonArray messages = new JsonArray();
         JsonObject message = new JsonObject();
         message.addProperty("role", "user");
-        message.addProperty("content", text + "\n只返回 JSON：{\"message\":\"对管理员的话\",\"action\":null 或受限动作对象，\"approval\":null 或 {\"id\":\"...\",\"hash\":\"...\",\"approved\":true/false}}。不得输出 Markdown 代码块。");
+        message.addProperty("content", text + "\n只返回 JSON：{\"message\":\"对管理员的话\",\"action\":null 或受限动作对象，\"approval\":null 或 {\"id\":\"...\",\"hash\":\"...\",\"approved\":true/false}}。不得输出 Markdown 代码块。set_time、set_weather、set_gamerule、set_border、teleport、spawn_entity、set_blocks 必须填写 world，值取自本次世界摘要；teleport 还需 player,x,y,z；spawn_entity 还需 entity,count,x,y,z；remove_entity 只用摘要中的可移除实体 uuid。证据不足时 action 为 null。");
         messages.add(message);
         body.add("messages", messages);
         HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(timeout)
@@ -85,6 +86,7 @@ final class OpenClawClient {
         return switch (code) {
             case 401, 403 -> "OpenClaw HTTP " + code + "：检查专用 Gateway token";
             case 404 -> "OpenClaw HTTP 404：检查 Gateway 接口和角色 Agent ID";
+            case 405 -> "OpenClaw HTTP 405：确认 Gateway 已启用聊天接口；本插件已使用 HTTP/1.1";
             default -> "OpenClaw HTTP " + code + "：检查专用实例日志与模型连接";
         };
     }

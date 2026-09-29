@@ -1,5 +1,5 @@
 gateway-url: "http://127.0.0.1:19789"
-request-timeout-seconds: 25
+request-timeout-seconds: 210
 review-interval-seconds: 600
 backup-directory: ""
 max-simple-blocks-per-action: 64
