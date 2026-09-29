@@ -16,6 +16,7 @@ record AgentReply(String message, JsonObject action, String approvalId, String a
                 approval == null ? "" : string(approval, "id", ""),
                 approval == null ? "" : string(approval, "hash", ""),
                 approval != null && approval.has("approved") && approval.get("approved").isJsonPrimitive()
+                    && approval.get("approved").getAsJsonPrimitive().isBoolean()
                     && approval.get("approved").getAsBoolean());
         } catch (RuntimeException invalid) {
             // A malformed model answer is displayable text, never an action.

@@ -37,6 +37,8 @@ final class OpenClawClientTest {
             assertEquals(5, seen.size());
             for (AgentRole role : AgentRole.values()) assertEquals("skyisland:admin:" + role.id, seen.get(role));
             assertNull(AgentReply.parse("{bad").action());
+            assertFalse(AgentReply.parse("{\"approval\":{\"id\":\"a\",\"hash\":\"b\",\"approved\":\"true\"}}").approved());
+            assertTrue(AgentReply.parse("{\"approval\":{\"id\":\"a\",\"hash\":\"b\",\"approved\":true}}").approved());
             assertThrows(IllegalArgumentException.class, () -> new OpenClawClient("http://example.com:19789", "token", 5));
         } finally { server.stop(0); }
     }

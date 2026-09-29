@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,8 +40,9 @@ final class AbuseGuard implements Listener, AutoCloseable {
     private final Map<UUID, Long> bans = new ConcurrentHashMap<>();
     private final Map<String, Long> strikes = new ConcurrentHashMap<>();
     private final Map<String, WindowCounter> windows = new ConcurrentHashMap<>();
+    private final Map<String, Integer> incidentCounts = new HashMap<>();
+    private final Map<String, Long> lastIncidentBySignal = new HashMap<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private long lastIncidentAt;
 
     AbuseGuard(SkyIslandPlugin plugin, LawBook laws) {
         this.plugin = plugin;
@@ -76,6 +78,14 @@ final class AbuseGuard implements Listener, AutoCloseable {
         if (expiry <= System.currentTimeMillis()) { bans.remove(event.getUniqueId()); save(); return; }
         event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED,
             "天空岛稳定性防护：临时封禁至 " + Instant.ofEpochMilli(expiry) + "。联系管理员查看证据。");
+    }
+
+    boolean enforceExistingBan(Player player) {
+        Long expiry = bans.get(player.getUniqueId());
+        if (expiry == null) return false;
+        if (expiry <= System.currentTimeMillis()) { bans.remove(player.getUniqueId()); save(); return false; }
+        player.kickPlayer("天空岛稳定性防护：临时封禁至 " + Instant.ofEpochMilli(expiry));
+        return true;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -140,13 +150,14 @@ final class AbuseGuard implements Listener, AutoCloseable {
     }
 
     private void enforce(Player player, String signal, int count, long windowMillis, String location, LawBook.Rule rule) {
-        boolean verifiedIdentity = plugin.getServer().getOnlineMode();
+        boolean verifiedIdentity = plugin.authenticated(player);
         long now = System.currentTimeMillis();
         String strikeKey = player.getUniqueId() + ":" + signal;
         long previous = strikes.getOrDefault(strikeKey, 0L);
         boolean ban = verifiedIdentity && PenaltyPolicy.temporaryBan(signal, previous, now);
         long expiry = now + rule.banMinutes() * 60_000L;
-        lastIncidentAt = now;
+        lastIncidentBySignal.put(signal, now);
+        incidentCounts.merge(signal, 1, Integer::sum);
         if (verifiedIdentity) strikes.put(strikeKey, now);
         if (ban) bans.put(player.getUniqueId(), expiry);
         String evidence = Instant.now() + " uuid=" + player.getUniqueId() + " name=" + player.getName()
@@ -169,7 +180,11 @@ final class AbuseGuard implements Listener, AutoCloseable {
         player.kickPlayer(ChatColor.RED + "天空岛稳定性防护：异常高频行为已被拦截。联系管理员查看证据。");
     }
 
-    boolean hasRecentIncident() { return System.currentTimeMillis() - lastIncidentAt < 5 * 60_000L; }
+    boolean hasRecentIncident(String signal) {
+        return System.currentTimeMillis() - lastIncidentBySignal.getOrDefault(signal, 0L) < 5 * 60_000L;
+    }
+
+    int incidentCount(String signal) { return incidentCounts.getOrDefault(signal, 0); }
 
     String riskSummary() {
         StringBuilder out = new StringBuilder("接近防护阈值的玩家：");
