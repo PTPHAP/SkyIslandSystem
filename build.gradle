@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'dev.skyisland'
-version = '0.5.2'
+version = '0.6.0'
 
 repositories {
     mavenCentral()
@@ -12,6 +12,7 @@ repositories {
 
 dependencies {
     compileOnly 'io.papermc.paper:paper-api:1.20.1-R0.1-SNAPSHOT'
+    testImplementation 'io.papermc.paper:paper-api:1.20.1-R0.1-SNAPSHOT'
     compileOnly 'com.google.code.gson:gson:2.10.1'
     testImplementation 'com.google.code.gson:gson:2.10.1'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
@@ -29,6 +30,7 @@ tasks.withType(JavaCompile).configureEach {
 test { useJUnitPlatform() }
 
 processResources {
+    from('personas/TOOLS.md') { rename { 'tool-guide.md' } }
     inputs.property('pluginVersion', project.version)
     filesMatching('plugin.yml') { expand(version: project.version) }
 }

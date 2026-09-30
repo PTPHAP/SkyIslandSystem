@@ -53,8 +53,8 @@ $entries = @{}
 foreach ($role in $roles) {
   $workspace = Join-Path $state "workspaces\$role"
   New-Item -ItemType Directory -Path $workspace -Force | Out-Null
-  foreach ($name in @('AGENTS.md', 'SOUL.md')) {
-    $source = Join-Path $repo "personas\$role\$name"
+  foreach ($name in @('AGENTS.md', 'SOUL.md', 'TOOLS.md')) {
+    $source = if ($name -eq 'TOOLS.md') { Join-Path $repo 'personas\TOOLS.md' } else { Join-Path $repo "personas\$role\$name" }
     $target = Join-Path $workspace $name
     if ((Test-Path -LiteralPath $target) -and
         (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) {

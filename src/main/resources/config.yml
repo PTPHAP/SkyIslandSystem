@@ -3,4 +3,6 @@ request-timeout-seconds: 210
 review-interval-seconds: 600
 meeting-interval-hours: 24
 backup-directory: ""
-max-simple-blocks-per-action: 64
+max-simple-blocks-per-action: 4096
+command-mode: "world-autonomous"
+appeal-contact: ""

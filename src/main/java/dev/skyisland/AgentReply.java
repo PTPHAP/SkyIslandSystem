@@ -4,11 +4,11 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 record AgentReply(String message, JsonObject action, String delegateRole, String approvalId, String approvalHash, boolean approved,
-                  boolean validFormat) {
+                  boolean validFormat, JsonObject query) {
     static AgentReply parse(String raw) {
         try {
             JsonObject json = JsonParser.parseString(firstObject(raw)).getAsJsonObject();
-            if (!json.has("message") && !json.has("action") && !json.has("approval") && !json.has("delegate"))
+            if (!json.has("message") && !json.has("action") && !json.has("approval") && !json.has("delegate") && !json.has("query"))
                 throw new IllegalArgumentException("不是角色回复对象");
             String message = string(json, "message", "");
             if (json.has("action") && !json.get("action").isJsonNull() && !json.get("action").isJsonObject())
@@ -17,12 +17,18 @@ record AgentReply(String message, JsonObject action, String delegateRole, String
                 throw new IllegalArgumentException("approval 不是对象");
             if (json.has("delegate") && !json.get("delegate").isJsonNull() && !json.get("delegate").isJsonObject())
                 throw new IllegalArgumentException("delegate 不是对象");
+            if (json.has("query") && !json.get("query").isJsonNull() && !json.get("query").isJsonObject())
+                throw new IllegalArgumentException("query 不是对象");
             JsonObject action = json.has("action") && json.get("action").isJsonObject()
                 ? json.getAsJsonObject("action") : null;
             JsonObject approval = json.has("approval") && json.get("approval").isJsonObject()
                 ? json.getAsJsonObject("approval") : null;
             JsonObject delegate = json.has("delegate") && json.get("delegate").isJsonObject()
                 ? json.getAsJsonObject("delegate") : null;
+            JsonObject query = json.has("query") && json.get("query").isJsonObject()
+                ? json.getAsJsonObject("query") : null;
+            if (query != null && (action != null || approval != null || delegate != null))
+                throw new IllegalArgumentException("只读查询不可同时提交动作、审批或委派");
             if (approval != null && approval.has("approved") && (!approval.get("approved").isJsonPrimitive()
                 || !approval.get("approved").getAsJsonPrimitive().isBoolean()))
                 throw new IllegalArgumentException("approved 必须是布尔值");
@@ -31,10 +37,10 @@ record AgentReply(String message, JsonObject action, String delegateRole, String
                 approval == null ? "" : string(approval, "hash", ""),
                 approval != null && approval.has("approved") && approval.get("approved").isJsonPrimitive()
                     && approval.get("approved").getAsJsonPrimitive().isBoolean()
-                    && approval.get("approved").getAsBoolean(), true);
+                    && approval.get("approved").getAsBoolean(), true, query);
         } catch (RuntimeException invalid) {
             // A malformed model answer is displayable text, never an action.
-            return new AgentReply(raw == null ? "" : raw, null, "", "", "", false, false);
+            return new AgentReply(raw == null ? "" : raw, null, "", "", "", false, false, null);
         }
     }
 

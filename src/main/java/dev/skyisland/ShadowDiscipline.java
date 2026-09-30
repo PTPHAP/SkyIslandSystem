@@ -18,8 +18,12 @@ import java.util.Set;
 final class ShadowDiscipline {
     private static final long DAY = 86_400_000L;
     private static final Set<String> TYPES = Set.of("set_time", "set_weather", "set_gamerule",
-        "set_border", "teleport", "spawn_entity", "remove_entity", "set_blocks", "set_law");
+        "set_border", "teleport", "spawn_entity", "remove_entity", "set_blocks", "set_law",
+        "relieve_entity_pressure", "minecraft_command", "add_time", "world_query", "punish_player", "give_item", "confiscate_item", "restore_items", "set_effect", "set_player_mode", "undo_blocks");
     private final Path file;
+    static boolean known(String type) {
+        return TYPES.contains(type) || Set.of("declare_plan","schedule_season","set_shadow_scope","pardon_shadow","pardon_player","close_case","memory_note").contains(type);
+    }
     private final Map<AgentRole, State> states = new EnumMap<>(AgentRole.class);
 
     private static final class State {
@@ -32,14 +36,20 @@ final class ShadowDiscipline {
 
     ShadowDiscipline(Path folder) {
         file = folder.resolve("shadow-discipline.properties");
-        states.put(AgentRole.RONOVA, new State(Set.of("remove_entity", "set_law")));
-        states.put(AgentRole.NABERIUS, new State(Set.of("spawn_entity", "set_gamerule", "set_law")));
-        states.put(AgentRole.ISTAROTH, new State(Set.of("set_time", "set_weather", "set_gamerule", "set_law")));
-        states.put(AgentRole.ASMODAY, new State(Set.of("set_border", "teleport", "set_law")));
+        states.put(AgentRole.RONOVA, new State(Set.of("remove_entity", "relieve_entity_pressure", "minecraft_command", "set_law")));
+        states.put(AgentRole.NABERIUS, new State(Set.of("spawn_entity", "set_gamerule", "relieve_entity_pressure", "minecraft_command", "set_law")));
+        states.put(AgentRole.ISTAROTH, new State(Set.of("set_time", "set_gamerule", "minecraft_command", "set_law")));
+        states.put(AgentRole.ASMODAY, new State(Set.of("set_border", "teleport", "minecraft_command", "set_law")));
+        for (State state : states.values()) state.allowed.add("punish_player");
+        states.get(AgentRole.RONOVA).allowed.addAll(Set.of("confiscate_item","restore_items"));
+        states.get(AgentRole.NABERIUS).allowed.addAll(Set.of("give_item","set_effect"));
+        states.get(AgentRole.ISTAROTH).allowed.addAll(Set.of("add_time","world_query","undo_blocks"));
+        states.get(AgentRole.ASMODAY).allowed.addAll(Set.of("set_blocks","set_player_mode"));
         if (!Files.exists(file)) return;
         Properties data = new Properties();
         try (InputStream in = Files.newInputStream(file)) {
             data.load(in);
+            int version = Integer.parseInt(data.getProperty("version", "1"));
             for (var entry : states.entrySet()) {
                 String prefix = entry.getKey().id + ".";
                 State state = entry.getValue();
@@ -51,6 +61,20 @@ final class ShadowDiscipline {
                 state.violations = Integer.parseInt(data.getProperty(prefix + "violations", "0"));
                 state.windowStart = Long.parseLong(data.getProperty(prefix + "window-start", "0"));
                 state.suspendedUntil = Long.parseLong(data.getProperty(prefix + "suspended-until", "0"));
+            }
+            if (version < 3) {
+                states.get(AgentRole.ISTAROTH).allowed.remove("set_weather");
+                for (var entry : states.entrySet()) entry.getValue().allowed.add("minecraft_command");
+                states.get(AgentRole.RONOVA).allowed.add("relieve_entity_pressure");
+                states.get(AgentRole.NABERIUS).allowed.add("relieve_entity_pressure");
+                for (State state : states.values()) state.allowed.add("punish_player");
+                states.get(AgentRole.RONOVA).allowed.addAll(Set.of("confiscate_item","restore_items"));
+                states.get(AgentRole.NABERIUS).allowed.addAll(Set.of("give_item","set_effect"));
+                states.get(AgentRole.ISTAROTH).allowed.addAll(Set.of("add_time","world_query","undo_blocks"));
+                states.get(AgentRole.ASMODAY).allowed.addAll(Set.of("set_blocks","set_player_mode"));
+                Files.copy(file, file.resolveSibling("shadow-discipline.pre-world-autonomous-"+System.currentTimeMillis()+".properties"),
+                    StandardCopyOption.REPLACE_EXISTING);
+                save();
             }
         } catch (Exception invalid) {
             throw new IllegalStateException("四影权能记录损坏；请从备份恢复 " + file, invalid);
@@ -151,6 +175,7 @@ final class ShadowDiscipline {
 
     private void save() {
         Properties data = new Properties();
+        data.setProperty("version", "3");
         states.forEach((role, state) -> {
             String prefix = role.id + ".";
             data.setProperty(prefix + "scope", String.join(",", state.allowed));

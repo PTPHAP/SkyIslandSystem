@@ -1,18 +1,24 @@
-# 交给 OpenClaw 的部署提示词
+# 交给OpenClaw的v0.6.0部署提示词
 
-将下面整段复制给拥有目标机器操作权限的部署 Agent。每次只针对一台 Paper 服务器。**先提供**：目标服务器系统和 Paper 根目录、可用的独立系统账号权限、模型提供商及凭证配置方式、服务器所有者已接受 Minecraft EULA 的证据、现有备份与重启机制。模型密钥和 Gateway token 不要贴进对话或日志。
+复制下面内容给拥有目标机器权限的部署Agent，同时提供系统、Paper目录、专用账号权限、模型ID、EULA接受情况和凭证的本地配置方式。不要贴密钥。
 
-> 请部署本仓库中的“天空岛体系” Paper 1.20.1 插件。先检查本仓库 README、`deploy/windows.ps1` 或 `deploy/linux.sh`、五份 `personas` 文件及源代码，不修改任何现有 OpenClaw 实例。每次部署只面向我指定的一台 Paper 服务器。
->
-> 1. 核实目标机器的 Paper 1.20.1、Java、Node、磁盘空间、Minecraft EULA、已授权的模型凭证、可用的本地备份和重启服务。缺项就停止相关安装步骤，逐项报告待办，不得假称完成。
-> 2. 创建专用操作系统账号 `SkyIslandSvc`（Windows）或 `skyisland`（Linux），确保它不能读取原有 OpenClaw 配置、状态、项目文件和会话；将专用实例状态及五个 Agent 工作区放在此账号的私有目录。插件和 Paper 进程只获得专用 Gateway token，不取得模型密钥。
-> 3. 在专用账号中安装受支持的 OpenClaw，运行对应部署脚本，生成五个 Agent：`phanes`、`ronova`、`naberius`、`istaroth`、`asmoday`。每个 Agent 同步对应的 `AGENTS.md` 操作协议和 `SOUL.md` 人格文件，使用独立工作区和记忆文件；更新前备份被改变的文件，不覆盖 `MEMORY.md`。按 `SETUP_GUIDE.md` 在脚本指定的同一状态目录配置模型凭证并使用生成的启动脚本，不使用额外 `--profile`。Gateway 仅监听 `127.0.0.1:19789`，启用 `/v1/chat/completions`，设置最小工具权限、禁止跨 Agent 会话访问。验证 `openclaw config validate`、`openclaw agents list` 与实际模型应答。
-> 4. 构建并安装 JAR，私下把专用 token 配进 `plugins/SkyIslandSystem/secrets.yml`，设置 `config.yml` 的 Gateway URL 和真实备份目录。离线服先备份旧世界，再为旧玩家由**服务器控制台**逐个生成一次性认领码并私下交付；新玩家按 README 用无参数 `/skyisland register` 和下一条普通聊天注册。绝不把密码写入斜杠命令；检查其他插件会不会记录聊天事件。备份 `identities.properties`，不要在 OpenClaw 对话中传递密码或认领码。为管理员授权 `skyisland.admin`。不要让角色执行任意控制台命令、系统命令、文件操作、改权限、重启或回档。
-> 5. 真实验收：Paper 启动无异常；离线服未登录玩家不能操作或运行其他命令，新玩家可注册，旧存档必须用一次性认领码注册，重进须再次登录，冒名者不知密码不能游戏；普通已登录玩家可查看 `/skyisland laws` 与 `/skyisland season` 但打不开管理面板；管理员 `doctor` 列出五位 Agent，再用五次 `ask` 验证实际模型回复和各角色独立记忆；普通高频案件由法涅斯先审理并以 `delegate` 委派对应执政，执政世界动作仍须审批；严重高频案件仅允许执政收紧同信号紧急法令；执行 `/skyisland meeting`，核对五角色发言、结论和审计；同一法令变更须跨重启遵守 30 分钟冷却；关闭 OpenClaw 时 Paper 仍运行；已验证账号的 TNT 与刷怪蛋高频首次可临封，方块与命令高频首次踢出、24 小时内同类行为再次超限才临封，均须有证据；一命赛季须验证提前公告、死亡旁观、重启保持和新赛季恢复；普通方块编辑重启后撤销，复杂编辑经确认。先在测试世界做破坏性验收，未等到赛季正式开始时标为未验证。
-> 6. Windows 与 Linux 各运行一次前提检查。核验专用账号无法读取原 OpenClaw 目录，不能跨 Agent 调用会话工具。检查 HTTP/1.1 实际应答、围栏 JSON 动作、四影提案的游戏内批准/拒绝/超时回执、玩家位置摘要、离线身份防护和备份状态。确认 UTF-8 日志与 Paper 开机自启或面板守护真正生效；未检测到时明确写“未配置”。最后给我一张通过/失败/未验证的验收表，并附不含凭证的日志位置。绝不将“脚本执行成功”当成真实联通完成。
+---
 
-## 本地预检
+请在我指定的一台Paper1.20.1服务器部署SkyIslandSystem v0.6.0。先读README、SETUP_GUIDE、deploy脚本、五套personas/AGENTS.md与SOUL.md、公共personas/TOOLS.md。
 
-Windows 管理员先运行 `powershell -File deploy/windows.ps1 -CreateAccount`；登录专用账号，配置模型后运行 `powershell -File deploy/windows.ps1 -PaperRoot <路径> -ModelId <提供商/模型>`。Linux 管理员先运行 `sudo ./deploy/linux.sh --create-user`；切换 `skyisland`，配置模型后运行 `./deploy/linux.sh <Paper路径> <提供商/模型>`。
+1. 检查Java17+、当前OpenClaw支持的Node、Paper1.20.1、已由我接受的EULA、磁盘、模型凭证与现有备份/守护。缺项明确报告，不宣称已完成。面板服检查Gateway与Paper是否同一容器，127.0.0.1只指向当前容器。
+2. 正常停Paper，备份世界与插件私有目录，替换旧JAR。保留身份、法令、案件、处罚、保管记录、快照、agent-jobs.json和五角色已有记忆，不混入其他项目会话。
+3. 建立专用Gateway系统账号SkyIslandSvc或skyisland，使用ACL核验它无法读取原OpenClaw项目或Paper私有服务器文件。Paper和Gateway各自账号，只交换专用token；五角色不得获得主机、通用文件、网络控制或跨项目会话工具。
+4. 在独立OPENCLAW_STATE_DIR/OPENCLAW_CONFIG_PATH中配置模型凭证并运行对应脚本。同步AGENTS/SOUL/TOOLS，差异旧文件先备份，MEMORY.md不覆盖。核对目标CLI/schema，validate失败就停止相关步骤，不猜旧命令。工具手册由插件每轮附带，不依赖OpenClaw自动加载TOOLS.md。
+5. Gateway默认私有127.0.0.1:19789，启用chat completions、独立token、五角色固定路由。生成的启动脚本固定私有状态目录，不额外套用profile。五角色实际有效模型回复后才算联通。
+6. 在目标机私下复制plugin-secrets.yml为Paper/plugins/SkyIslandSystem/secrets.yml。配置实际gateway-url、结构可识别近期备份目录backup-directory、被封禁玩家的appeal-contact。保持world-autonomous，禁止恢复full-vanilla/原始控制台权限；旧配置与整根命令授权迁移前备份。
+7. 保持online-mode=false。新玩家无参数register，下一条普通聊天输入密码与重复密码；旧存档用控制台私下认领码。密码不进入斜杠命令，并检查其他插件是否记录密码聊天。管理员skyisland.admin免受处罚、没收与强制限制。离线身份不能识别换号现实玩家。
+8. 按docs/TESTING-v0.6.0.md在隔离世界验收：五角色会话/记忆、热点建案/委派/审批/执行回执/复查、工具纠错、处罚到期/永封/撤销/申诉、物品恢复、分批快照与并发冲突、引导/称号/个人案件、会议持久记录。世界外命令、文件、NBT与控制方块路径全部拒绝。不要在正式服刷实体或破坏玩家建筑测试。
+9. 关闭Gateway验证Paper和本地防护继续，AI排队；恢复后检查续办与去重。守护与自启交面板或系统服务，缺少时写未配置。备份结构检查与实际恢复演练分开。
+10. 输出通过/失败/未验证表、脱敏日志位置、启动方式和待办。分别记录插件工具、模拟网关、目标真实模型及Windows/Linux部署。文档升级或一次HTTP成功不证明模型智力或长期自治。
 
-脚本检查前提并生成私有配置，**不会替服务器所有者接受 EULA，不会猜测模型凭证，不会自动安装或启动 Paper，也不会把私有 token 打印到终端**。专用账号下的 OpenClaw 安装、模型认证及 Gateway 常驻服务需要目标机管理员按实际环境完成并验证。对其他机器的结果不可复用。
+---
+
+Windows先运行deploy/windows.ps1 -CreateAccount，专用账号再运行-PaperRoot <目录> -ModelId <模型>。Linux先--create-user，专用账号再传入Paper目录与模型ID。脚本不代替服主接受EULA、填凭证或启动Paper。
+
+官方接入依据：[多Agent](https://docs.openclaw.ai/concepts/multi-agent)、[工作区](https://docs.openclaw.ai/concepts/agent-workspace)。

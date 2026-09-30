@@ -14,7 +14,7 @@
 
 下载 Release JAR，或下载部署包 ZIP 并取出其中的 JAR，放入 Paper 的 `plugins/`，启动一次服务器，生成 `plugins/SkyIslandSystem/config.yml`，然后正常停止。部署资料还包含五位角色各自的 `AGENTS.md` 操作协议、`SOUL.md` 人格文件和 [原著依据表](lore/README.md)。管理员权限节点为 `skyisland.admin`；OP 默认拥有。插件即使没有配置 OpenClaw 也能启动、显示指标和运行本地防护。
 
-从旧版升级时先备份 `plugins/SkyIslandSystem/`，停服后移走旧版 JAR，避免两个版本同时加载。人格文档更新不改变 Paper JAR 版本；重新运行部署脚本会把五套 `AGENTS.md`、`SOUL.md` 同步到专用 OpenClaw 工作区。已有文件若与新版不同，会先在同一工作区留下带时间戳的 `.bak`；各角色的 `MEMORY.md` 保持原样。重启专用 Gateway 后分别向五位角色提问，确认新文档已加载。若旧法令的高频阈值过低，插件会将原文件保存为 `laws.pre-v0.3.0.properties` 并恢复安全默认值；启动日志会提醒管理员。
+从旧版升级时先备份 `plugins/SkyIslandSystem/`，停服后移走旧版 JAR，避免两个版本同时加载。v0.6.0 同时更新 Paper JAR 与五套 `AGENTS.md`；重新运行部署脚本会把 `AGENTS.md`、`SOUL.md` 同步到专用 OpenClaw 工作区。已有文件若与新版不同，会先留下带时间戳的 `.bak`；各角色 `MEMORY.md` 保持原样。重启 Gateway 后分别提问确认新文档已加载。旧四影权能记录首次迁移时会保存 `shadow-discipline.pre-v0.6.0.properties`，并移除伊斯塔露的默认天气权能。若旧法令阈值过低，插件仍会备份并恢复安全默认值。
 
 **离线服首次启用 v0.5.0**：新玩家入服后输入无参数命令 `/skyisland register`，再按提示在**下一条普通聊天**输入 `密码 重复密码`。有旧存档的玩家须由服主在面板的**服务器控制台**执行 `skyisland claim <原玩家名或UUID>`，核对 UUID 与旧存档一致，把控制台显示的一次性认领码私下交给该玩家。玩家随后输入 `/skyisland register`，下一条普通聊天输入 `密码 重复密码 认领码`；重进输入 `/skyisland login`，下一条普通聊天输入密码。已登录后改密用 `/skyisland passwd`，下一条普通聊天输入 `旧密码 新密码 重复新密码`。**绝不要把密码写进斜杠命令**，Paper 会在插件处理之前记录命令。密码须为 12 至 64 字，并且与其他网站和服务器的密码不同。插件会取消并遮盖密码聊天事件，但其他插件仍可能读取聊天事件，须检查其日志行为。切勿把密码或认领码发给 OpenClaw。将 `plugins/SkyIslandSystem/identities.properties` 与世界存档一起备份；身份文件损坏时插件会拒绝离线玩家登录，不会自动清空账号。
 
@@ -74,17 +74,16 @@ Windows 本地 Paper 可把 `deploy/start-paper-windows.bat` 复制到 Paper 根
 
 插件对专用 Gateway 使用 HTTP/1.1。新安装默认等待模型回复 210 秒；已有 `config.yml` 若仍写 25 秒，本版运行时至少使用 180 秒并在日志提醒。请按模型实际冷启动时间调整 `request-timeout-seconds`，重启 Paper 生效。若中文日志乱码，先用 UTF-8 启动脚本测试新的 `logs/latest.log`；旧日志和面板自行转码的控制台输出不会被插件追溯修复。
 
-脚本在私有状态目录生成 `plugin-secrets.yml`。由 Paper 管理员**在目标机器本地**复制到 `plugins/SkyIslandSystem/secrets.yml`，限制文件读取权限；不要复制 `openclaw.json` 或模型密钥。`plugins/SkyIslandSystem/config.yml` 中 `gateway-url` 保持默认的 `http://127.0.0.1:19789`，如需复杂编辑再将 `backup-directory` 指向已有备份目录。重启 Paper。
+脚本在私有状态目录生成 `plugin-secrets.yml`。由 Paper 管理员**在目标机器本地**复制到 `plugins/SkyIslandSystem/secrets.yml`，限制文件读取权限；不要复制 `openclaw.json` 或模型密钥。`plugins/SkyIslandSystem/config.yml` 中 `gateway-url` 保持默认的 `http://127.0.0.1:19789`。复杂编辑需要把 `backup-directory` 指向备份目录：其中应有近 24 小时生成、含 `level.dat` 和 `region/*.mca` 的世界 ZIP 或世界目录；任意普通文件不会通过检查。这只检查结构，不能代替实际恢复演练。重启 Paper。
+
+`command-mode` 固定为 `world-autonomous`。旧值 controlled/full-vanilla 会先保存配置备份再迁移；旧整根命令授权文件禁用并备份。法涅斯自主使用已实现世界工具，游戏命令文本会解析成这些工具，没有控制台权限。配置 `appeal-contact` 为你希望被封禁玩家使用的外部联系链接；为空时通知明确说明未配置。
+
+升级时正常停止Paper，备份插件私有目录和世界，删除旧SkyIslandSystem JAR后放入新版，保留现有身份、案件、快照和五角色记忆。不要把状态复制给别的项目。部署脚本同步 AGENTS/SOUL/TOOLS，内容不同的旧文件留下时间戳备份，MEMORY.md 不覆盖。工具手册随插件每轮请求附带，不能依赖某个OpenClaw版本是否自动加载TOOLS.md。
 
 ## 6. 真实验收
 
-1. 在上节设置 `OPENCLAW_STATE_DIR` 与 `OPENCLAW_CONFIG_PATH` 的专用账号终端中，`openclaw config validate` 与 `openclaw agents list` 均成功，且仅列出五位角色。用专用 token 请求 `/v1/models`，再向每个 `openclaw/<id>` 发一次实际模型请求；只有 HTTP 成功和有效内容才算已联通。
-2. 在 Paper 控制台运行 `skyisland doctor`，确认五角色均列出；再运行 `skyisland status`，分别运行 `skyisland ask phanes ...`、`ronova`、`naberius`、`istaroth`、`asmoday`。`doctor` 只检查列表，实际模型响应后 `OpenClaw` 才会显示“已响应”。使用不同随机短语追问，验证各角色只记住自己的短语。
-3. 普通玩家可以使用 `/skyisland laws` 查看公开规划，但不能打开 `/skyisland` 管理面板；在测试服死亡并复活后应看到若娜瓦标题与文字、听到原版音效。法涅斯公布规划时在线玩家应看到标题与音效。管理员可查看指标、角色状态、提案 ID、最近操作记录。四影的动作必须在审计日志里先有提案和 `approver=phanes` 审批，再执行；无审批和错误 hash 不执行。
-4. 让法涅斯在测试服公布 `declare_plan`，并在没有真实防护事件时尝试 `set_law` 的 `emergency:true`：后者应拒绝。普通 `set_law` 应公告并在约 5 分钟后生效。四影提出越界动作应留痕，连续越界后暂停提案；重启后纪律状态仍在。
-5. 在**测试世界**编辑一个普通方块，记录撤销 ID；重启 Paper 后执行 `skyisland undo <ID>` 并核验方块恢复。箱子、红石、流体邻域的编辑应要求管理员确认；没有最近备份文件时确认被拒。方块随后被玩家修改时，撤销应拒绝覆盖。
-6. 在离线测试服验证：新玩家未注册时不能移动、破坏、放置、打开物品栏或执行其他命令；注册后可游戏，重进须再次登录；冒名使用旧玩家名但不知道密码时不能游戏；旧存档无认领码不能注册，码只能使用一次。测试高频防护时，TNT、刷怪蛋超限首次可临封；方块或命令超限首次只踢出，再次同类超限才临封，核验证据、到期时间与解封。关闭 Gateway 后 Paper 仍须运行。
-7. 用专用账号尝试读取旧 OpenClaw 状态目录，应被操作系统拒绝；检查本实例不能访问旧项目会话。确认现有备份与重启服务仍有效。
-8. 在已验证身份的测试服让法涅斯提出 `schedule_season`，确认至少提前 24 小时公告；正式验收需等赛季开始后验证死亡旁观、重启保持资格、下赛季恢复。检查普通高频案件由法涅斯先审理、返回 `delegate` 后对应执政处理，提案仍由法涅斯审批；严重高频案件只允许执政收紧同信号紧急法令。用 `/skyisland meeting` 发起会议，检查五位角色发言、法涅斯结论和 `audit.log` 的 `meeting-*` 记录。不可为了缩短测试而在正式世界直接编辑 `one-life.properties`。
+按 [v0.6.0测试教程](docs/TESTING-v0.6.0.md) 分别检查安装、实际模型联通、世界自治、处罚复核、故障恢复和玩家体验。`doctor` 仅检查角色列表；五位真实应答、人格差异、固定会话记忆隔离都必须另测。
 
-审计与证据位于 `plugins/SkyIslandSystem/audit.log`、`guard-evidence.log`、`snapshots/`。出现“未验证”或“请求失败”时，分别检查 Gateway 是否运行、模型凭证、端口、五个 Agent 的配置和私有 token；**不要把这些文件或凭证贴进聊天**。
+本地已验证和目标环境未验证项见 [验收记录](docs/ACCEPTANCE-v0.6.0.md)。模拟网关测试不证明目标模型已经会主动治理，也不证明部署脚本已在目标Windows/Linux账号完整安装。
+
+私有证据位于 plugins/SkyIslandSystem/audit.log、guard-evidence.log、governance/、agent-jobs.json 和 snapshots/。排查请求失败检查目标Gateway、模型凭证、端口、五角色配置和私有token，不公开凭证或完整玩家档案。

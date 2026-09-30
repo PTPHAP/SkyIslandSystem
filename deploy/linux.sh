@@ -38,8 +38,8 @@ export OPENCLAW_CONFIG_PATH="$STATE/openclaw.json"
 if [[ ! -f "$OPENCLAW_CONFIG_PATH" ]]; then openclaw setup --baseline; fi
 for role in phanes ronova naberius istaroth asmoday; do
   install -d -m 700 "$STATE/workspaces/$role"
-  for name in AGENTS.md SOUL.md; do
-    source="$ROOT/personas/$role/$name"
+  for name in AGENTS.md SOUL.md TOOLS.md; do
+    if [[ "$name" == TOOLS.md ]]; then source="$ROOT/personas/TOOLS.md"; else source="$ROOT/personas/$role/$name"; fi
     target="$STATE/workspaces/$role/$name"
     if [[ -f "$target" ]] && ! cmp -s "$source" "$target"; then
       cp -p -- "$target" "$target.$(date -u +%Y%m%dT%H%M%S%N).bak"
