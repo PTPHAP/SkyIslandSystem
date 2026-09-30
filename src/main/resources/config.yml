@@ -1,3 +1,5 @@
+# pause/resume 会保存此状态；重启保持暂停。
+ai-paused: false
 gateway-url: "http://127.0.0.1:19789"
 request-timeout-seconds: 210
 review-interval-seconds: 600

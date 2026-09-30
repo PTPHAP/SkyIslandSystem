@@ -15,6 +15,13 @@ import org.junit.jupiter.api.io.TempDir;
 
 class V060PolicyTest {
     @TempDir Path folder;
+    @Test void safeTeleportRejectsDamageAndPortalMaterials() {
+        for(org.bukkit.Material material:new org.bukkit.Material[]{org.bukkit.Material.MAGMA_BLOCK,org.bukkit.Material.CAMPFIRE,
+            org.bukkit.Material.CACTUS,org.bukkit.Material.POWDER_SNOW,org.bukkit.Material.NETHER_PORTAL,org.bukkit.Material.LAVA})
+            assertTrue(WorldActions.harmfulLanding(material));
+        assertFalse(WorldActions.harmfulLanding(org.bukkit.Material.STONE));
+        assertFalse(WorldActions.harmfulLanding(org.bukkit.Material.AIR));
+    }
 
     @Test void vanillaCommandRouteRejectsNamespaceAndMultipleLines() {
         assertEquals("op", VanillaCommands.root("op Alex"));

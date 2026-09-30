@@ -20,3 +20,13 @@ jobs:
         with:
           name: SkyIslandSystem
           path: build/libs/*.jar
+
+  windows-deploy:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployment under Windows PowerShell 5.1 with mocked host tools
+        shell: powershell
+        run: .\scripts\check-windows-deploy.ps1

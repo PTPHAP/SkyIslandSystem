@@ -184,6 +184,7 @@ final class EntityPressure {
         World world = Bukkit.getWorld(incident.key.world);
         int[] removed = {0};
         Bukkit.getScheduler().runTaskTimer(plugin, task -> {
+            if (plugin instanceof SkyIslandPlugin sky && sky.aiPaused()) return;
             Incident current;
             try { current = require(incident.id()); }
             catch (RuntimeException invalid) { task.cancel(); active.remove(incident.id()); report.accept("清理停止：" + invalid.getMessage()); return; }

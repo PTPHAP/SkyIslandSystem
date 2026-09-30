@@ -26,7 +26,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.Action;
-import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
+import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -75,12 +75,12 @@ final class AbuseGuard implements Listener, AutoCloseable {
         return bans.size();
     }
 
-    @EventHandler public void preLogin(AsyncPlayerPreLoginEvent event) {
-        if (!plugin.getServer().getOnlineMode()) return;
-        Long expiry = bans.get(event.getUniqueId());
+    @EventHandler public void login(PlayerLoginEvent event) {
+        if (!plugin.getServer().getOnlineMode() || event.getPlayer().hasPermission("skyisland.admin")) return;
+        Long expiry = bans.get(event.getPlayer().getUniqueId());
         if (expiry == null) return;
-        if (expiry <= System.currentTimeMillis()) { bans.remove(event.getUniqueId()); save(); return; }
-        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_BANNED,
+        if (expiry <= System.currentTimeMillis()) { bans.remove(event.getPlayer().getUniqueId()); save(); return; }
+        event.disallow(PlayerLoginEvent.Result.KICK_BANNED,
             "天空岛稳定性防护：临时封禁至 " + Instant.ofEpochMilli(expiry) + "。联系管理员查看证据。");
     }
 
@@ -245,6 +245,10 @@ final class AbuseGuard implements Listener, AutoCloseable {
         strikes.keySet().removeIf(key -> key.startsWith(uuid + ":"));
         save();
         plugin.audit("guard-unban uuid=" + uuid + " by=" + by);
+    }
+
+    void revoke(UUID id, long expiry) {
+        if (bans.remove(id, expiry)) { save(); plugin.audit("guard-revoke uuid="+id+" expires="+expiry); }
     }
 
     private void save() {

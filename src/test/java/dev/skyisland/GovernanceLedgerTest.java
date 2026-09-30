@@ -11,6 +11,13 @@ import org.junit.jupiter.api.io.TempDir;
 
 class GovernanceLedgerTest {
     @TempDir Path folder;
+    @Test void closedCasesIgnoreStaleStatusesButAcceptAnExplicitAppeal() {
+        GovernanceLedger ledger=new GovernanceLedger(folder);String id=ledger.open(null,"tnt",null,"facts");
+        ledger.status(id,"CLOSED");ledger.status(id,"WAIT_REVIEW");ledger.status(id,"DELEGATED");
+        assertEquals("CLOSED",new GovernanceLedger(folder).requireCase(id).get("status").getAsString());
+        ledger.status(id,"APPEAL_PENDING");
+        assertEquals("APPEAL_PENDING",new GovernanceLedger(folder).requireCase(id).get("status").getAsString());
+    }
     @Test void durableCasesKeepMeasurementsJudgmentsAndCorrectionsSeparate() {
         GovernanceLedger ledger=new GovernanceLedger(folder);UUID subject=UUID.randomUUID(),other=UUID.randomUUID();
         String id=ledger.open(null,"tnt",subject,"measured=33");

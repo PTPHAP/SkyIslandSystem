@@ -154,12 +154,27 @@ final class WorldActions implements AutoCloseable {
         Location destination = location(a);
         if (!destination.getWorld().isChunkLoaded(destination.getBlockX() >> 4, destination.getBlockZ() >> 4))
             throw new IllegalArgumentException("目的地区块未加载");
-        if (!destination.getBlock().isPassable() || !destination.clone().add(0, 1, 0).getBlock().isPassable()
-            || !destination.clone().add(0, -1, 0).getBlock().getType().isSolid()
-            || !destination.getWorld().getWorldBorder().isInside(destination))
+        if (!safeLanding(destination))
             throw new IllegalArgumentException("目的地不安全");
         if(!player.teleport(destination))throw new IllegalArgumentException("传送被服务器事件取消，未完成");
         return player.getName() + " 已传送至 " + destination.getWorld().getName();
+    }
+
+    static boolean harmfulLanding(Material material) {
+        return EnumSet.of(Material.MAGMA_BLOCK,Material.CAMPFIRE,Material.SOUL_CAMPFIRE,Material.FIRE,Material.SOUL_FIRE,
+            Material.LAVA,Material.WATER,Material.CACTUS,Material.SWEET_BERRY_BUSH,Material.WITHER_ROSE,Material.POWDER_SNOW,
+            Material.POINTED_DRIPSTONE,Material.NETHER_PORTAL,Material.END_PORTAL,Material.END_GATEWAY).contains(material);
+    }
+    private boolean safeLanding(Location at) {
+        World world=at.getWorld();
+        for(int x=(int)Math.floor(at.getX()-.3);x<=(int)Math.floor(at.getX()+.3);x++)for(int z=(int)Math.floor(at.getZ()-.3);z<=(int)Math.floor(at.getZ()+.3);z++) {
+            if(!world.isChunkLoaded(x>>4,z>>4) || !world.getWorldBorder().isInside(new Location(world,x+.5,at.getY(),z+.5)))return false;
+            Material floor=world.getBlockAt(x,at.getBlockY()-1,z).getType();if(!floor.isSolid() || harmfulLanding(floor))return false;
+            for(int y=at.getBlockY();y<=(int)Math.floor(at.getY()+1.8);y++) {
+                Block body=world.getBlockAt(x,y,z);if(!body.isPassable() || harmfulLanding(body.getType()))return false;
+            }
+        }
+        return true;
     }
 
     private String spawn(JsonObject a) {
@@ -171,8 +186,10 @@ final class WorldActions implements AutoCloseable {
         Location at = location(a);
         if (!at.getWorld().isChunkLoaded(at.getBlockX() >> 4, at.getBlockZ() >> 4))
             throw new IllegalArgumentException("生成区块未加载");
-        for (int i = 0; i < count; i++) at.getWorld().spawnEntity(at, type);
-        return "已生成 " + count + " 个 " + type;
+        int actual=0;
+        for (int i = 0; i < count; i++) if(at.getWorld().spawnEntity(at, type).isValid())actual++;
+        if(actual==0)throw new IllegalArgumentException("实体生成未加入世界，可能被其他插件取消；实际数量=0");
+        return "已生成 " + actual + " 个 " + type + "；请求="+count+"；未加入世界="+(count-actual);
     }
 
     private String remove(JsonObject a) {
@@ -223,6 +240,11 @@ final class WorldActions implements AutoCloseable {
         if (Files.exists(existing)) {
             Properties saved = new Properties(); try (var in = Files.newInputStream(existing)) { saved.load(in); }
             if ("APPLIED".equals(saved.getProperty("state"))) { report.accept("此编辑已完成；撤销 ID: " + p.id()); return; }
+            if("APPLYING".equals(saved.getProperty("state")) && "true".equals(saved.getProperty("paused")) && "2".equals(saved.getProperty("signature-version"))) {
+                Region r=Region.fromMetadata(saved);
+                if(!signature(r).equals(saved.getProperty("expected")))throw new IllegalArgumentException("暂停后区域已变化，需重新调查，未恢复执行");
+                scheduleEdit(p.id(),saved,r,material(p.action()),Integer.parseInt(saved.getProperty("cursor")),report);return;
+            }
             throw new IllegalArgumentException("此操作已有未完成或已撤销快照，需核查 " + p.id());
         }
         Region r = region(p.action());
@@ -249,6 +271,7 @@ final class WorldActions implements AutoCloseable {
         metadata.setProperty("before", before);
         metadata.setProperty("target", target.name());
         metadata.setProperty("state", "PREPARED");
+        metadata.setProperty("signature-version","2");
         metadata.setProperty("rollbackRows",String.join(";",rowCoords));
         io.execute(() -> {
             try {
@@ -258,6 +281,7 @@ final class WorldActions implements AutoCloseable {
                 metadata.store(props, "SkyIslandSystem world edit");
                 durableWrite(snapshots.resolve(p.id() + ".properties"), props.toByteArray());
                 Bukkit.getScheduler().runTask(plugin, () -> {
+                    try {
                     if (!Objects.equals(before, signature(r))) {
                         metadata.setProperty("state", "CANCELLED");
                         try { writePropertiesStrict(p.id(), metadata); }
@@ -268,34 +292,46 @@ final class WorldActions implements AutoCloseable {
                     metadata.setProperty("state", "APPLYING");
                     try { writePropertiesStrict(p.id(), metadata); }
                     catch (IOException error) { report.accept("无法持久记录编辑开始，未编辑世界: " + error.getMessage()); return; }
-                    java.util.List<Block> blocks = new java.util.ArrayList<>();
-                    for (int x = r.x1; x <= r.x2; x++) for (int y = r.y1; y <= r.y2; y++)
-                        for (int z = r.z1; z <= r.z2; z++) blocks.add(r.world.getBlockAt(x, y, z));
-                    int[] cursor = {0}; String[] expected = {before};
-                    Bukkit.getScheduler().runTaskTimer(plugin, task -> {
-                        try {
-                            for (int x = r.x1 >> 4; x <= r.x2 >> 4; x++) for (int z = r.z1 >> 4; z <= r.z2 >> 4; z++)
-                                if (!r.world.isChunkLoaded(x,z)) throw new IllegalStateException("编辑区块卸载");
-                            if (!Objects.equals(expected[0], signature(r))) throw new IllegalStateException("玩家或世界并发修改了区域");
-                            int count=reserveBlocks(Math.min(128,blocks.size()-cursor[0]));if(count==0)return;
-                            int end = cursor[0]+count;
-                            while (cursor[0] < end) blocks.get(cursor[0]++).setType(target, false);
-                            expected[0] = signature(r);
-                            if (cursor[0] < blocks.size()) return;
-                            task.cancel(); metadata.setProperty("state", "APPLIED"); metadata.setProperty("after", expected[0]);
-                            writePropertiesStrict(p.id(), metadata);
-                            report.accept("已编辑 " + r.volume() + " 个方块；撤销 ID: " + p.id());
-                        } catch (Exception failure) {
-                            task.cancel(); metadata.setProperty("state", "NEEDS_REVIEW");
-                            try { writePropertiesStrict(p.id(), metadata); } catch (IOException error) { plugin.getLogger().severe("编辑冲突无法记录 " + p.id()); }
-                            report.accept("编辑停止，区域冲突需复查；恢复材料=" + p.id() + "；原因=" + failure.getMessage());
-                        }
-                    }, 1L, 1L);
+                    metadata.setProperty("expected",before);metadata.setProperty("cursor","0");
+                    scheduleEdit(p.id(),metadata,r,target,0,report);
+                    } catch (RuntimeException failure) {
+                        metadata.setProperty("state", "CANCELLED");
+                        try { writePropertiesStrict(p.id(),metadata); }
+                        catch (IOException error) { plugin.getLogger().severe("编辑取消状态写入失败: " + p.id()); }
+                        report.accept("编辑停止，快照保存后区域无法核验；未开始编辑；原因=" + failure.getMessage());
+                    }
                 });
             } catch (Exception e) {
                 Bukkit.getScheduler().runTask(plugin, () -> report.accept("快照写入失败，未编辑世界: " + e.getMessage()));
             }
         });
+    }
+
+    private boolean paused() { return plugin instanceof SkyIslandPlugin sky && sky.aiPaused(); }
+
+    private void scheduleEdit(String id,Properties metadata,Region r,Material target,int start,Consumer<String> report) {
+        if(start<0 || start>=r.volume())throw new IllegalArgumentException("编辑游标无效，需重新调查");
+        java.util.List<Block> blocks=new java.util.ArrayList<>();
+        for(int x=r.x1;x<=r.x2;x++)for(int y=r.y1;y<=r.y2;y++)for(int z=r.z1;z<=r.z2;z++)blocks.add(r.world.getBlockAt(x,y,z));
+        int[] cursor={start};String[] expected={signature(r)};
+        Bukkit.getScheduler().runTaskTimer(plugin,task->{
+            try {
+                if(paused()) {
+                    metadata.setProperty("paused","true");metadata.setProperty("cursor",Integer.toString(cursor[0]));metadata.setProperty("expected",expected[0]);
+                    writePropertiesStrict(id,metadata);task.cancel();report.accept("任务已暂停；编辑游标="+cursor[0]+"；恢复记录="+id);return;
+                }
+                if(!expected[0].equals(signature(r)))throw new IllegalStateException("玩家或世界并发修改了区域");
+                int count=reserveBlocks(Math.min(128,blocks.size()-cursor[0]));if(count==0)return;
+                int end=cursor[0]+count;while(cursor[0]<end)blocks.get(cursor[0]++).setType(target,false);
+                expected[0]=signature(r);if(cursor[0]<blocks.size())return;
+                task.cancel();metadata.setProperty("state","APPLIED");metadata.setProperty("after",expected[0]);metadata.remove("paused");
+                writePropertiesStrict(id,metadata);report.accept("已编辑 "+r.volume()+" 个方块；撤销 ID: "+id);
+            }catch(Exception failure) {
+                task.cancel();metadata.setProperty("state","NEEDS_REVIEW");
+                try{writePropertiesStrict(id,metadata);}catch(IOException error){plugin.getLogger().severe("编辑冲突无法记录 "+id);}
+                report.accept("编辑停止，区域冲突需复查；恢复材料="+id+"；原因="+failure.getMessage());
+            }
+        },1L,1L);
     }
 
     private void blockPart(String parent, java.util.List<JsonObject> parts, int cursor, Consumer<String> report) {
@@ -311,6 +347,7 @@ final class WorldActions implements AutoCloseable {
             blocks(prepared, result -> {
                 plugin.getLogger().info("区域任务 " + parent + " 子快照=" + child + "：" + result);
                 if (result.startsWith("已编辑") || result.startsWith("此编辑已完成")) blockPart(parent, parts, cursor + 1, report);
+                else if(result.startsWith("任务已暂停"))report.accept(result+"；分区任务="+parent);
                 else report.accept("分区任务停止；任务=" + parent + " 子快照=" + child + "；" + result);
             });
         } catch (Exception failure) { report.accept("分区任务停止：" + failure.getMessage()); }
@@ -344,13 +381,17 @@ final class WorldActions implements AutoCloseable {
                     rows.add(Files.readAllBytes(snapshots.resolve(id+"-row"+row+".nbt")));
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     try {
-                        if (!"APPLIED".equals(metadata.getProperty("state")))
+                        boolean resume="ROLLING_BACK".equals(metadata.getProperty("state")) && "true".equals(metadata.getProperty("paused"));
+                        if (!"APPLIED".equals(metadata.getProperty("state")) && !resume)
                             throw new IllegalArgumentException("此记录未确认已执行，请人工检查");
                         Region r = Region.fromMetadata(metadata);
-                        if (!Objects.equals(metadata.getProperty("after"), signature(r)))
+                        Structure original = Bukkit.getStructureManager().loadStructure(new ByteArrayInputStream(bytes));
+                        if(!"2".equals(metadata.getProperty("signature-version")) && original.getPalettes().stream().flatMap(p->p.getBlocks().stream()).anyMatch(b->b instanceof TileState))
+                            throw new IllegalArgumentException("旧版复杂快照缺少完整状态指纹，需依据外部备份核查；未覆盖世界");
+                        if (!Objects.equals(metadata.getProperty(resume?"expected":"after"), signature(r)))
                             throw new IllegalArgumentException("编辑后区域又被修改，拒绝覆盖玩家变化");
                         if(!rows.isEmpty()) { undoRows(id,metadata,r,rows,report);return; }
-                        Structure original = Bukkit.getStructureManager().loadStructure(new ByteArrayInputStream(bytes));
+                        if(paused()){metadata.setProperty("paused","true");writePropertiesStrict(id,metadata);report.accept("任务已暂停；撤销尚未开始；恢复记录="+id);return;}
                         checkStructure(original);
                         metadata.setProperty("state", "ROLLING_BACK");
                         writePropertiesStrict(id, metadata);
@@ -375,9 +416,11 @@ final class WorldActions implements AutoCloseable {
 
     private void undoRows(String id,Properties metadata,Region r,java.util.List<byte[]> rows,Consumer<String> report) throws IOException {
         metadata.setProperty("state","ROLLING_BACK");writePropertiesStrict(id,metadata);
-        String[] locations=metadata.getProperty("rollbackRows").split(";");int[] cursor={0};String[] expected={signature(r)};
+        String[] locations=metadata.getProperty("rollbackRows").split(";");int[] cursor={"true".equals(metadata.getProperty("paused"))?Integer.parseInt(metadata.getProperty("cursor","0")):0};String[] expected={signature(r)};
+        if(cursor[0]<0 || cursor[0]>=rows.size())throw new IllegalArgumentException("恢复游标无效");
         Bukkit.getScheduler().runTaskTimer(plugin,task->{
             try {
+                if(paused()) {metadata.setProperty("paused","true");metadata.setProperty("cursor",Integer.toString(cursor[0]));metadata.setProperty("expected",expected[0]);writePropertiesStrict(id,metadata);task.cancel();report.accept("任务已暂停；撤销游标="+cursor[0]+"；恢复记录="+id);return;}
                 for(int x=r.x1>>4;x<=r.x2>>4;x++)for(int z=r.z1>>4;z<=r.z2>>4;z++)if(!r.world.isChunkLoaded(x,z))throw new IllegalStateException("恢复区块已卸载");
                 if(!expected[0].equals(signature(r)))throw new IllegalStateException("恢复时玩家或世界并发修改");
                 int[] at=Arrays.stream(locations[cursor[0]].split(",")).mapToInt(Integer::parseInt).toArray();
@@ -389,7 +432,7 @@ final class WorldActions implements AutoCloseable {
                 row.place(new Location(r.world,at[0],at[1],at[2]),false,org.bukkit.block.structure.StructureRotation.NONE,org.bukkit.block.structure.Mirror.NONE,0,1.0f,new java.util.Random(0));
                 expected[0]=signature(r);if(cursor[0]<rows.size())return;task.cancel();
                 if(!expected[0].equals(metadata.getProperty("before")))throw new IllegalStateException("恢复结果与快照不一致");
-                metadata.setProperty("state","ROLLED_BACK");writePropertiesStrict(id,metadata);report.accept("已分批恢复快照 "+id+"；每 tick 最多128方块");
+                metadata.setProperty("state","ROLLED_BACK");metadata.remove("paused");writePropertiesStrict(id,metadata);report.accept("已分批恢复快照 "+id+"；每 tick 最多128方块");
             }catch(Exception failure){task.cancel();metadata.setProperty("state","NEEDS_REVIEW");try{writePropertiesStrict(id,metadata);}catch(IOException ignored){plugin.getLogger().severe("无法记录恢复冲突 "+id);}report.accept("恢复停止，保留快照 "+id+"："+failure.getMessage());}
         },1L,1L);
     }
@@ -428,6 +471,10 @@ final class WorldActions implements AutoCloseable {
                             for (int z = r.z1 >> 4; z <= r.z2 >> 4; z++)
                                 if (!r.world.isChunkLoaded(x, z)) { recoveryWaiting=true;return; }
                         String current = signature(r);
+                        if("true".equals(metadata.getProperty("paused")) && "2".equals(metadata.getProperty("signature-version"))) {
+                            if(!current.equals(metadata.getProperty("expected"))){metadata.setProperty("state","NEEDS_REVIEW");writePropertiesStrict(id,metadata);}
+                            return;
+                        }
                         if ("ROLLING_BACK".equals(phase)) {
                             metadata.setProperty("state", current.equals(metadata.getProperty("before")) ? "ROLLED_BACK"
                                 : current.equals(metadata.getProperty("after")) ? "APPLIED" : "NEEDS_REVIEW");
@@ -467,20 +514,28 @@ final class WorldActions implements AutoCloseable {
     }
 
     private static String signature(Region r) {
-        StringBuilder result = new StringBuilder();
+        for(int x=r.x1>>4;x<=r.x2>>4;x++)for(int z=r.z1>>4;z<=r.z2>>4;z++)if(!r.world.isChunkLoaded(x,z))throw new IllegalStateException("区域区块已卸载");
+        StringBuilder result = new StringBuilder();boolean tile=false;
         for (int x = r.x1; x <= r.x2; x++) for (int y = r.y1; y <= r.y2; y++)
             for (int z = r.z1; z <= r.z2; z++) {
                 Block block = r.world.getBlockAt(x, y, z);
                 result.append(block.getBlockData().getAsString()).append(';');
+                if(block.getState() instanceof TileState)tile=true;
                 if (block.getState() instanceof Container container) {
                     for (ItemStack item : container.getSnapshotInventory().getContents())
                         result.append(item == null ? "empty" : item.serialize().toString()).append(';');
                 }
             }
         try {
+            if(tile) {
+                Structure state=Bukkit.getStructureManager().createStructure();
+                state.fill(new Location(r.world,r.x1,r.y1,r.z1),new BlockVector(r.x2-r.x1+1,r.y2-r.y1+1,r.z2-r.z1+1),false);
+                ByteArrayOutputStream data=new ByteArrayOutputStream();Bukkit.getStructureManager().saveStructure(data,state);
+                result.append(java.util.Base64.getEncoder().encodeToString(data.toByteArray()));
+            }
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(result.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-        } catch (Exception impossible) { throw new IllegalStateException(impossible); }
+        } catch (Exception failure) { throw new IllegalStateException("无法完整核对方块状态，停止修改",failure); }
     }
 
     private Region region(JsonObject a) {

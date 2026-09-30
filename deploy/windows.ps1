@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$CreateAccount,
   [string]$PaperRoot,
   [string]$ModelId
@@ -22,12 +22,17 @@ if (-not (Test-Path (Join-Path $PaperRoot 'eula.txt'))) { throw 'Paper EULA 文�
 if (-not (Select-String -Path (Join-Path $PaperRoot 'eula.txt') -Pattern '^eula=true$' -Quiet)) { throw 'EULA 未由服务器所有者接受' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (@(Get-ChildItem -LiteralPath (Join-Path $PaperRoot 'plugins') -Filter 'SkyIslandSystem-*.jar' -File).Count -eq 0) { throw '请先将天空岛体系 Release JAR 放入 Paper/plugins' }
-$javaVersion = (& java -version 2>&1) -join ' '
-if ($LASTEXITCODE -ne 0 -or $javaVersion -notmatch 'version "([0-9]+)') { throw '需要 Java 17+' }
+$nativePreference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = 'Continue'
+  $javaVersion = (& java -version 2>&1) -join ' '
+  $javaExit = $LASTEXITCODE
+} finally { $ErrorActionPreference = $nativePreference }
+if ($javaExit -ne 0 -or $javaVersion -notmatch 'version "([0-9]+)') { throw '需要 Java 17+' }
 if ([int]$Matches[1] -lt 17) { throw 'Java 版本不受支持' }
 $paperJar = Join-Path $PaperRoot 'Paper-1.20.1.jar'
 if (-not (Test-Path $paperJar)) { throw '找不到 Paper-1.20.1.jar' }
-Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::OpenRead($paperJar)
 try {
   $reader = [IO.StreamReader]::new($zip.GetEntry('version.json').Open())
@@ -69,8 +74,9 @@ foreach ($role in $roles) {
 $tokenFile = Join-Path $state 'gateway.token'
 if (-not (Test-Path $tokenFile)) {
   $bytes = New-Object byte[] 32
-  [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-  [IO.File]::WriteAllText($tokenFile, [Convert]::ToHexString($bytes).ToLowerInvariant())
+  $random = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $random.GetBytes($bytes) } finally { $random.Dispose() }
+  [IO.File]::WriteAllText($tokenFile, ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant())
 }
 $token = [IO.File]::ReadAllText($tokenFile).Trim()
 $patch = @{

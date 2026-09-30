@@ -50,6 +50,7 @@ final class GovernanceLedger {
         c.getAsJsonArray("history").add(entry); c.addProperty("updated", System.currentTimeMillis()); save();
     }
     void status(String id, String status) {
+        if("CLOSED".equals(requireCase(id).get("status").getAsString()) && !java.util.Set.of("CLOSED","APPEAL_PENDING").contains(status))return;
         requireCase(id).addProperty("status", status); requireCase(id).addProperty("updated", System.currentTimeMillis()); save();
     }
     String caseSummary(String id, boolean full) {

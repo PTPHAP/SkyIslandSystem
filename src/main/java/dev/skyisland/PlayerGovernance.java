@@ -63,7 +63,7 @@ final class PlayerGovernance implements Listener {
         for(var entry:ledger.section("sanctions").entrySet()) {
             JsonObject s=entry.getValue().getAsJsonObject();
             if("guard".equals(AgentReply.string(s,"source", "")) && !s.get("active").getAsBoolean() && s.get("until").getAsLong()>System.currentTimeMillis())
-                plugin.revokeGuardBan(UUID.fromString(s.get("subject").getAsString()));
+                plugin.revokeGuardBan(UUID.fromString(s.get("subject").getAsString()),s.get("until").getAsLong());
         }
     }
 
@@ -275,7 +275,7 @@ final class PlayerGovernance implements Listener {
             s.addProperty("active", false);
             ledger.section("operations").getAsJsonObject(operation).addProperty("state","DONE");
             ledger.save(); refreshBans();
-            if("guard".equals(AgentReply.string(s,"source", "")))plugin.revokeGuardBan(UUID.fromString(s.get("subject").getAsString()));
+            if("guard".equals(AgentReply.string(s,"source", "")))plugin.revokeGuardBan(UUID.fromString(s.get("subject").getAsString()),s.get("until").getAsLong());
             ledger.record(s.get("case_id").getAsString(), "correction", "phanes", "处罚撤销=" + a.get("sanction_id"));
             return "处罚已撤销=" + a.get("sanction_id");
         }
@@ -307,6 +307,7 @@ final class PlayerGovernance implements Listener {
         if (p == null || !plugin.authenticated(p)) throw new IllegalArgumentException("玩家不在线或未验证，保留物品待归还");
         ItemStack[] before = p.getInventory().getContents(), after = cloneItems(before);
         for (ItemStack item : decode(escrow.getAsJsonArray("items"))) if (item != null) add(after, item, item.getAmount());
+        escrow.addProperty("state", "RETURNING"); escrow.addProperty("return_operation", operation); ledger.save();
         inventoryChange(operation, p, before, after, id, "RETURNED");
         p.sendMessage("§a天理已归还保管物品，编号=" + id); return "物品已归还=" + id;
     }
@@ -323,23 +324,43 @@ final class PlayerGovernance implements Listener {
             JsonObject c = ledger.checkpoint(entry.getKey());
             if (!c.has("subject") || !c.get("subject").getAsString().equals(p.getUniqueId().toString())) continue;
             if (c.get("state").getAsString().equals("APPLIED")) {
-                String escrow=c.get("escrow").getAsString();
-                if(!escrow.isBlank() && !ledger.section("escrow").getAsJsonObject(escrow).get("state").getAsString().equals(c.get("finalState").getAsString())) {
-                    ledger.section("escrow").getAsJsonObject(escrow).addProperty("state",c.get("finalState").getAsString());ledger.save();
-                }
+                settleEscrow(entry.getKey(),c);
                 JsonObject op=entry.getValue().getAsJsonObject();
                 if(!"DONE".equals(op.get("state").getAsString())) { op.addProperty("state","DONE");op.addProperty("result","重启核对物品操作已完成");ledger.save(); }
                 continue;
             }
             if (!c.get("state").getAsString().equals("APPLYING")) continue;
+            String escrow = c.get("escrow").getAsString();
+            if(!escrow.isBlank() && c.get("finalState").getAsString().equals("RETURNED")) {
+                JsonObject held=ledger.section("escrow").getAsJsonObject(escrow);
+                held.addProperty("state","RETURNING");held.addProperty("return_operation",entry.getKey());ledger.save();
+            }
             JsonArray actual = encode(p.getInventory().getContents());
             if (actual.equals(c.get("before"))) { p.getInventory().setContents(decode(c.getAsJsonArray("after"))); p.saveData(); }
-            else if (!actual.equals(c.get("after"))) { c.addProperty("state", "NEEDS_REVIEW"); ledger.checkpoint(entry.getKey(), c); continue; }
+            else if (!actual.equals(c.get("after"))) {
+                c.addProperty("state", "NEEDS_REVIEW"); ledger.checkpoint(entry.getKey(), c);
+                if(!escrow.isBlank()){ledger.section("escrow").getAsJsonObject(escrow).addProperty("state","NEEDS_REVIEW");ledger.save();}
+                continue;
+            }
             c.addProperty("state", "APPLIED"); ledger.checkpoint(entry.getKey(), c);
-            String escrow = c.get("escrow").getAsString();
-            if (!escrow.isBlank()) ledger.section("escrow").getAsJsonObject(escrow).addProperty("state", c.get("finalState").getAsString());
+            settleEscrow(entry.getKey(),c);
             JsonObject op = entry.getValue().getAsJsonObject(); op.addProperty("state", "DONE"); op.addProperty("result", "重启核对物品操作已完成"); ledger.save();
         }
+        for(var value:ledger.section("escrow").entrySet()) {
+            JsonObject held=value.getValue().getAsJsonObject();
+            if(!held.get("subject").getAsString().equals(p.getUniqueId().toString()) || !"RETURNING".equals(held.get("state").getAsString()))continue;
+            String operation=AgentReply.string(held,"return_operation", "");
+            if(!operation.isBlank() && !ledger.checkpoint(operation).has("subject")) {
+                held.addProperty("state","HELD");ledger.save();
+            }
+        }
+    }
+    private void settleEscrow(String operation,JsonObject checkpoint) {
+        String id=checkpoint.get("escrow").getAsString();if(id.isBlank())return;
+        JsonObject held=ledger.section("escrow").getAsJsonObject(id);String target=checkpoint.get("finalState").getAsString();
+        if(target.equals("HELD") && !held.get("state").getAsString().equals("SEIZING"))return;
+        if(target.equals("RETURNED") && held.has("return_operation") && !operation.equals(held.get("return_operation").getAsString()))return;
+        held.addProperty("state",target);ledger.save();
     }
     private static ItemStack[] cloneItems(ItemStack[] source) { ItemStack[] copy = new ItemStack[source.length]; for (int i=0;i<source.length;i++) copy[i]=source[i]==null?null:source[i].clone(); return copy; }
     private static void add(ItemStack[] target, ItemStack prototype, int amount) {

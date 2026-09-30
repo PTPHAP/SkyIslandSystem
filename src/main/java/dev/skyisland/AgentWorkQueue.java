@@ -12,7 +12,7 @@ import org.bukkit.Bukkit;
 
 /** Durable requests; delivery runs on the Paper thread with a stable operation ID. */
 final class AgentWorkQueue {
-    interface Recovery { void accept(AgentRole role, String prompt, String mode, AgentReply reply); }
+    interface Recovery { void accept(AgentRole role, String task, String caseContext, String mode, AgentReply reply); }
     private final SkyIslandPlugin plugin;
     private final OpenClawClient client;
     private final Path file;
@@ -26,6 +26,9 @@ final class AgentWorkQueue {
         file = plugin.getDataFolder().toPath().resolve("agent-jobs.json"); jobs = JsonState.read(file);
     }
     void submit(AgentRole role, String prompt, String mode, BiConsumer<AgentReply, Throwable> callback) {
+        submit(role, prompt, "", "", mode, callback);
+    }
+    void submit(AgentRole role, String prompt, String task, String caseContext, String mode, BiConsumer<AgentReply, Throwable> callback) {
         if (jobs.entrySet().stream().anyMatch(e -> {
             JsonObject j = e.getValue().getAsJsonObject();
             return j.get("role").getAsString().equals(role.id) && j.get("prompt").getAsString().equals(prompt)
@@ -35,6 +38,7 @@ final class AgentWorkQueue {
         String id;
         do{id=UUID.randomUUID().toString().substring(0,8);}while(jobs.has(id) || plugin.knownOperation(id));
         JsonObject j = new JsonObject(); j.addProperty("role", role.id); j.addProperty("prompt", prompt);
+        j.addProperty("task", task); j.addProperty("case_context", caseContext);
         j.addProperty("mode", mode); j.addProperty("next", 0); jobs.add(id, j); save(); callbacks.put(id, callback);
     }
     void tick() {
@@ -61,7 +65,7 @@ final class AgentWorkQueue {
                 if(job.get("mode").getAsString().equals("meeting")) {
                     BiConsumer<AgentReply,Throwable> callback=callbacks.get(id);
                     AgentReply absent=AgentReply.parse("{\"message\":\"缺席：网关请求失败，未形成有效意见\",\"action\":null}");
-                    if(callback!=null)callback.accept(absent,error);else recovery.accept(role,job.get("prompt").getAsString(),"meeting",absent);
+                    if(callback!=null)callback.accept(absent,error);else recover(role,job,absent);
                     jobs.remove(id);callbacks.remove(id);save();return;
                 }
                 int failures=job.has("failures")?job.get("failures").getAsInt()+1:1;
@@ -83,7 +87,7 @@ final class AgentWorkQueue {
             }
             BiConsumer<AgentReply, Throwable> callback = callbacks.get(id);
             if (callback != null) callback.accept(reply, null);
-            else recovery.accept(role, job.get("prompt").getAsString(), job.get("mode").getAsString(), reply);
+            else recover(role,job,reply);
             jobs.remove(id); callbacks.remove(id); save();
         } catch (RuntimeException failed) {
             job.addProperty("next", System.currentTimeMillis() + 60_000L); save();
@@ -91,6 +95,29 @@ final class AgentWorkQueue {
         } finally { running.remove(id); actors.remove(role); }
     }
     int size() { return jobs.size(); }
+    void interruptMeetings(GovernanceLedger ledger) {
+        for(String id:java.util.List.copyOf(jobs.keySet())) {
+            JsonObject job=jobs.getAsJsonObject(id);if(!"meeting".equals(job.get("mode").getAsString()))continue;
+            java.util.regex.Matcher match=java.util.regex.Pattern.compile("会议 ([0-9a-f]{8})").matcher(job.get("prompt").getAsString());
+            String meeting=match.find()?match.group(1):id;
+            if(!ledger.section("meetings").has(meeting)) {
+                JsonObject record=new JsonObject();record.addProperty("minutes","旧版会议重启中断；此前意见参见audit.log");
+                record.addProperty("conclusion","重启中断，未形成有效决议");record.addProperty("status","INTERRUPTED");record.addProperty("time",System.currentTimeMillis());
+                ledger.section("meetings").add(meeting,record);ledger.save();
+            }
+            jobs.remove(id);
+        }
+        save();
+    }
+    private void recover(AgentRole role, JsonObject job, AgentReply reply) {
+        String context=AgentReply.string(job,"case_context", "");
+        if(!job.has("task")) {
+            java.util.regex.Matcher id=java.util.regex.Pattern.compile("案件 ([0-9a-f]{8})").matcher(job.get("prompt").getAsString());
+            if(id.find() && plugin.knownCase(id.group(1)))context="案件 "+id.group(1);
+        }
+        String task=AgentReply.string(job,"task", "重启续办。"+context+"；依据已保存证据重新调查，不能重复已完成操作。");
+        recovery.accept(role,task,context,job.get("mode").getAsString(),reply);
+    }
     boolean containsCase(String caseId, AgentRole role) {
         return jobs.entrySet().stream().anyMatch(e -> {
             JsonObject j=e.getValue().getAsJsonObject();
