@@ -33,7 +33,7 @@ final class GovernanceLedger {
         return section("cases").getAsJsonObject(id);
     }
     String open(String id, String signal, UUID subject, String facts) {
-        if (id == null) id = UUID.randomUUID().toString().substring(0, 8);
+        if (id == null)do{id=UUID.randomUUID().toString().substring(0,8);}while(section("cases").has(id));
         if (section("cases").has(id)) return id;
         JsonObject c = new JsonObject();
         c.addProperty("id", id); c.addProperty("signal", signal);

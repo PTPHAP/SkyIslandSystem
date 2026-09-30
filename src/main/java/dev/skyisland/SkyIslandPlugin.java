@@ -137,6 +137,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             handleDecision(role, prompt, null, prompt, null, "", round, reply);
         });
         guard = new AbuseGuard(this, laws);
+        playerGovernance.reconcileGuard();
         pressure = new EntityPressure(this, this::reviewEntityIncident, this::auditCritical);
         Bukkit.getPluginManager().registerEvents(this, this);
         Bukkit.getPluginManager().registerEvents(guard, this);
@@ -288,6 +289,9 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
 
     boolean aiPaused() { return paused; }
     void gatewayFailed() { gatewayState="请求失败（工作已排队）";gatewayDetail="检查专用Gateway、模型连接和目标机器网络"; }
+    void revokeGuardBan(UUID subject) { guard.unban(subject.toString(),"governance-reconcile"); }
+    boolean knownCase(String id) { return ledger.section("cases").has(id); }
+    boolean knownOperation(String id) { return ledger.section("operations").has(id) || ledger.section("sanctions").has(id) || ledger.section("escrow").has(id); }
     boolean eliminated(Player player) { return !player.hasPermission("skyisland.admin") && season.eliminated(player.getUniqueId()); }
     String publicLaws() { return laws.publicSummary(); }
 
@@ -297,6 +301,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         receipt.addProperty("recovery_id", WorldActions.string(prepared.action(),"type").equals("set_blocks") ? prepared.id() : "");
         ledger.operation(prepared.id(),prepared.action(),issuer,state,receipt.toString());
         String caseId=AgentReply.string(prepared.action(),"case_id", "");
+        if(state.equals("DONE"))loops.remove("prepare-correction:"+issuer.id+":"+caseId);
         if(!caseId.isBlank()) {
             ledger.record(caseId,"execution",issuer.id,receipt.toString());
             if(!state.equals("DONE"))ledger.status(caseId,"WAIT_REVIEW");
@@ -478,7 +483,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         }
     }
 
-    void reviewIncident(String signal, String evidence) {
+    String reviewIncident(String signal, String evidence) {
         long now = System.currentTimeMillis();
         boolean emergency = guard.severeIncident(signal);
         String reviewKey = signal + (emergency ? ":emergency" : ":ordinary");
@@ -486,7 +491,8 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         java.util.regex.Matcher identity = java.util.regex.Pattern.compile("uuid=([0-9a-f-]{36})").matcher(evidence);
         if (identity.find()) subject = UUID.fromString(identity.group(1));
         String durableCase = ledger.open(null, signal, subject, evidence + (subject == null ? "" : "；" + playerGovernance.observation(subject)));
-        if (paused || now - lastIncidentReview.getOrDefault(reviewKey, 0L) < 60_000L) return;
+        playerGovernance.recordGuard(durableCase,signal,subject,evidence);
+        if (paused || now - lastIncidentReview.getOrDefault(reviewKey, 0L) < 60_000L) return durableCase;
         lastIncidentReview.put(reviewKey, now);
         AgentRole shadow = switch (signal) {
             case "tnt" -> AgentRole.RONOVA;
@@ -531,6 +537,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
                 "案件 " + caseId + " 在五分钟后仍出现 " + repeated + " 次同类高频事件。"
                     + "请根据证据复查法令；不要越过插件边界。\n" + laws.summary(), null);
         }, 20L * 60 * 5);
+        return durableCase;
     }
 
     private void ask(AgentRole role, String prompt, CommandSender sender) {
@@ -811,6 +818,14 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             lastFeedback.put(role, invalid.getMessage() == null ? "动作校验异常" : invalid.getMessage());
             audit("invalid-proposal from=" + role.id + " reason=" + invalid.getMessage());
             notifyAdmins(role.display + " 提案未执行：" + actionableError(invalid.getMessage()));
+            String caseId=AgentReply.string(reply.action(),"case_id",contextCase(caseContext));
+            String operation=AgentReply.string(reply.action(),"_operation_id",UUID.randomUUID().toString().substring(0,8));
+            JsonObject feedback=new JsonObject();feedback.addProperty("operation_id",operation);feedback.addProperty("status","REJECTED");
+            feedback.addProperty("actual_result","未执行；"+actionableError(invalid.getMessage()));
+            ledger.operation(operation,reply.action(),role,"REJECTED",feedback.toString());
+            if(!caseId.isBlank() && ledger.section("cases").has(caseId)){ledger.record(caseId,"execution",role.id,feedback.toString());ledger.status(caseId,"WAIT_REVIEW");}
+            if(loops.merge("prepare-correction:"+role.id+":"+caseId,1,Integer::sum)<=3)
+                ask(role,"案件 "+caseId+"。工具准备回执："+feedback+"\n请依据手册修正参数、重新调查或停止；未执行的动作不能声称已完成。",null,"案件 "+caseId,null);
             return false;
         }
     }

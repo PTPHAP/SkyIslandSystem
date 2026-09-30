@@ -49,6 +49,23 @@ final class PlayerGovernance implements Listener {
     private long worldSince;
     private volatile Map<UUID, String> banMessages = Map.of();
     PlayerGovernance(SkyIslandPlugin plugin, GovernanceLedger ledger) { this.plugin = plugin; this.ledger = ledger; refreshBans(); }
+    void recordGuard(String caseId,String signal,UUID subject,String evidence) {
+        if(subject==null)return;
+        java.util.regex.Matcher expiry=java.util.regex.Pattern.compile("expires=([^ ]+)").matcher(evidence);
+        long until=expiry.find() && !expiry.group(1).equals("none")?java.time.Instant.parse(expiry.group(1)).toEpochMilli():0;
+        JsonObject s=new JsonObject();s.addProperty("source","guard");s.addProperty("case_id",caseId);s.addProperty("law",signal);
+        s.addProperty("subject",subject.toString());s.addProperty("kind",until>0?"tempban":"kick");s.addProperty("until",until);
+        s.addProperty("active",until>System.currentTimeMillis());s.addProperty("reason","本地高频保护："+signal+"；原始测量见案件");
+        ledger.section("sanctions").add(caseId,s);ledger.save();refreshBans();
+        ledger.record(caseId,"execution","system","本地防护实际执行；处罚编号="+caseId+"；kind="+s.get("kind")+"；until="+until);
+    }
+    void reconcileGuard() {
+        for(var entry:ledger.section("sanctions").entrySet()) {
+            JsonObject s=entry.getValue().getAsJsonObject();
+            if("guard".equals(AgentReply.string(s,"source", "")) && !s.get("active").getAsBoolean() && s.get("until").getAsLong()>System.currentTimeMillis())
+                plugin.revokeGuardBan(UUID.fromString(s.get("subject").getAsString()));
+        }
+    }
 
     void verified(Player p) {
         String id = p.getUniqueId().toString();
@@ -258,6 +275,7 @@ final class PlayerGovernance implements Listener {
             s.addProperty("active", false);
             ledger.section("operations").getAsJsonObject(operation).addProperty("state","DONE");
             ledger.save(); refreshBans();
+            if("guard".equals(AgentReply.string(s,"source", "")))plugin.revokeGuardBan(UUID.fromString(s.get("subject").getAsString()));
             ledger.record(s.get("case_id").getAsString(), "correction", "phanes", "处罚撤销=" + a.get("sanction_id"));
             return "处罚已撤销=" + a.get("sanction_id");
         }

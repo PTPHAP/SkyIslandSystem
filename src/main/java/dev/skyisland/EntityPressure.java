@@ -135,7 +135,9 @@ final class EntityPressure {
         boolean emergency = kind != Kind.ANIMAL && count >= kind.threshold * 3 && lowTpsSamples >= 3;
         Incident existing = cases.get(key);
         if (existing == null) {
-            Incident incident = new Incident(UUID.randomUUID().toString().substring(0, 8), key, count, emergency, now);
+            String id;
+            do{id=UUID.randomUUID().toString().substring(0,8);}while(byId.containsKey(id) || plugin instanceof SkyIslandPlugin sky && sky.knownCase(id));
+            Incident incident = new Incident(id, key, count, emergency, now);
             cases.put(key, incident);
             byId.put(incident.id(), key);
             audit.accept("entity-case-open id=" + incident.id() + " world=" + chunk.getWorld().getName()

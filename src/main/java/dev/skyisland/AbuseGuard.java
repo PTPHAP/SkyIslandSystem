@@ -85,6 +85,7 @@ final class AbuseGuard implements Listener, AutoCloseable {
     }
 
     boolean enforceExistingBan(Player player) {
+        if (player.hasPermission("skyisland.admin")) return false;
         Long expiry = bans.get(player.getUniqueId());
         if (expiry == null) return false;
         if (expiry <= System.currentTimeMillis()) { bans.remove(player.getUniqueId()); save(); return false; }
@@ -181,7 +182,7 @@ final class AbuseGuard implements Listener, AutoCloseable {
             + " previous-incident=" + (previous == 0 ? "none" : Instant.ofEpochMilli(previous))
             + " expires=" + (ban ? Instant.ofEpochMilli(expiry) : "none");
         plugin.audit((ban ? "guard-ban " : "guard-kick ") + evidence);
-        plugin.reviewIncident(signal, evidence);
+        String caseId = plugin.reviewIncident(signal, evidence);
         plugin.getServer().getOnlinePlayers().stream().filter(p -> p.hasPermission("skyisland.admin"))
             .forEach(p -> p.sendMessage(ChatColor.GOLD + "天空岛已" + (ban ? "临时封禁" : "踢出")
                 + player.getName() + "；证据 /skyisland evidence " + player.getUniqueId()));
@@ -191,7 +192,10 @@ final class AbuseGuard implements Listener, AutoCloseable {
             catch (IOException e) { plugin.getLogger().warning("防护证据写入失败"); }
         });
         if (verifiedIdentity) save();
-        player.kickPlayer(ChatColor.RED + "天空岛稳定性防护：异常高频行为已被拦截。联系管理员查看证据。");
+        String contact = plugin.getConfig().getString("appeal-contact", "");
+        player.kickPlayer(ChatColor.RED + "天空岛稳定性防护：" + signal + " 高频行为已拦截；案件=" + caseId
+            + "；" + (ban ? "临封截止=" + Instant.ofEpochMilli(expiry) : "本次踢出")
+            + "；申诉=" + (contact.isBlank() ? "外部申诉入口未配置" : contact));
     }
 
     boolean hasRecentIncident(String signal) {

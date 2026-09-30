@@ -32,7 +32,8 @@ final class AgentWorkQueue {
                 && j.get("mode").getAsString().equals(mode);
         })) return;
         if (jobs.size() >= 200) throw new IllegalStateException("AI 队列已满，案件保留待复查");
-        String id = UUID.randomUUID().toString().substring(0, 8);
+        String id;
+        do{id=UUID.randomUUID().toString().substring(0,8);}while(jobs.has(id) || plugin.knownOperation(id));
         JsonObject j = new JsonObject(); j.addProperty("role", role.id); j.addProperty("prompt", prompt);
         j.addProperty("mode", mode); j.addProperty("next", 0); jobs.add(id, j); save(); callbacks.put(id, callback);
     }
