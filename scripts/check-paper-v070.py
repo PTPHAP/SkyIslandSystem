@@ -27,7 +27,7 @@ if (root / 'world').exists():
 plugins = root / 'plugins'
 plugins.mkdir(exist_ok=True)
 import shutil
-shutil.copy2(repo / 'build/libs/SkyIslandSystem-0.7.0-beta.1.jar', plugins)
+shutil.copy2(repo / 'build/libs/SkyIslandSystem-0.7.0-beta.2.jar', plugins)
 shutil.copy2(repo / 'build/libs/SkyIslandTestDriver.jar', plugins)
 sky = plugins / 'SkyIslandSystem'
 sky.mkdir(exist_ok=True)

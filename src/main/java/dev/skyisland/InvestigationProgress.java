@@ -8,6 +8,17 @@ final class InvestigationProgress {
     InvestigationProgress(GovernanceLedger ledger){this.ledger=ledger;}
     String observe(String caseId,AgentRole role,JsonObject query,JsonObject result) {
         JsonObject clean=result.deepCopy();for(String key:java.util.List.of("sampled_at","evidence_id"))clean.remove(key);
+        if(AgentReply.string(query,"type","").equals("case_evidence") && clean.has("data") && clean.getAsJsonObject("data").has("case")) {
+            JsonObject data=clean.getAsJsonObject("data"),c=data.getAsJsonObject("case");
+            for(String field:java.util.List.of("updated","phase","next_step","wait_reason"))c.remove(field);
+            if(data.has("items")) {
+                com.google.gson.JsonArray facts=new com.google.gson.JsonArray();
+                for(var row:data.getAsJsonArray("items"))if(!AgentReply.string(row.getAsJsonObject(),"kind","").equals("judgment"))facts.add(row);
+                data.add("items",facts);
+            }
+            // Opinion count and its page size are bookkeeping, not new measured evidence.
+            clean.remove("total");clean.remove("next");clean.remove("complete");
+        }
         String key=role.id+":"+caseId,method=WorldPrograms.hash(query.toString()),evidence=WorldPrograms.hash(clean.toString());
         JsonObject progress=ledger.section("investigations").has(key)?ledger.section("investigations").getAsJsonObject(key):new JsonObject();
         int repeats=method.equals(AgentReply.string(progress,"method",""))&&evidence.equals(AgentReply.string(progress,"evidence",""))?progress.get("repeats").getAsInt()+1:0;

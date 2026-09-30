@@ -53,6 +53,19 @@ class V070GovernanceTest {
         experience.learn("07000005",AgentRole.RONOVA,a,"REJECTED","protected entity");experience.learn("07000005",AgentRole.RONOVA,a,"DONE","actually removed 1");experience.learn("07000005",AgentRole.RONOVA,a,"DONE","duplicate replay");
         assertEquals(2,experience.find(AgentRole.RONOVA,"entity-MONSTER","").size());assertTrue(experience.find(AgentRole.NABERIUS,"entity-MONSTER","").isEmpty());assertTrue(experience.find(AgentRole.RONOVA,"unrelated","").isEmpty());assertEquals(2,new GovernanceExperience(new GovernanceLedger(folder)).find(AgentRole.RONOVA,"","remove_entity").size());
     }
+    @Test void caseBookkeepingAndNewOpinionsDoNotPretendToBeNewFacts() {
+        GovernanceLedger ledger=new GovernanceLedger(folder);String id=ledger.open(null,"investigation",null,"measured hotspot");
+        InvestigationProgress progress=new InvestigationProgress(ledger);JsonObject q=json("{type:'case_evidence',offset:0}");q.addProperty("case_id",id);
+        JsonObject result=json("{data:{case:{facts:'measured hotspot',updated:1,phase:'INVESTIGATING'},items:[{kind:'fact',text:'count=100'}]},total:1,next:-1,complete:true}");
+        assertEquals("CONTINUE",progress.observe(id,AgentRole.RONOVA,q,result));
+        for(int i=1;i<=3;i++) {
+            result.getAsJsonObject("data").getAsJsonObject("case").addProperty("updated",i+1);
+            result.getAsJsonObject("data").getAsJsonArray("items").add(json("{kind:'judgment',text:'opinion "+i+"'}"));result.addProperty("total",i+1);
+            assertEquals(i==1?"CONTINUE":i==2?"CHANGE_METHOD":"WAIT_REVIEW",progress.observe(id,AgentRole.RONOVA,q,result));
+        }
+        result.getAsJsonObject("data").getAsJsonArray("items").add(json("{kind:'execution',text:'removed 20'}"));
+        assertEquals("CONTINUE",progress.observe(id,AgentRole.RONOVA,q,result));
+    }
     @Test void structuredPaginationDoesNotPretendTheFirstTwentyRowsAreAllEvidence() {
         java.util.List<JsonObject> rows=new java.util.ArrayList<>();for(int i=0;i<25;i++)rows.add(json("{n:"+i+"}"));JsonObject first=WorldInvestigation.page(rows,new JsonObject());assertEquals(20,first.get("next").getAsInt());assertFalse(first.get("complete").getAsBoolean());JsonObject last=WorldInvestigation.page(rows,json("{offset:20}"));assertEquals(5,last.getAsJsonObject("data").getAsJsonArray("items").size());assertEquals(-1,last.get("next").getAsInt());
     }

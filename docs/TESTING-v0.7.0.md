@@ -1,11 +1,11 @@
-# v0.7.0-beta.1 升级与测试教程
+# v0.7.0-beta.2 升级与测试教程
 
 建议先在另一份 Paper 1.20.1 测试目录进行；不复制正式服身份/密钥到公开位置。目标 OpenClaw 尚未配置也能启动插件，但模型任务只排队，不能把这种状态当自治已完成。
 
 ## 1. 升级
 
 1. 用控制台 `stop` 正常停服，备份世界与 `plugins/SkyIslandSystem/`。保留旧 JAR 作为回退材料，移出 plugins，避免两版同时加载。
-2. 解压部署 ZIP，把 `plugins/SkyIslandSystem-0.7.0-beta.1.jar` 放入服务器 plugins。教程、deploy、personas 属部署资料；examples 不覆盖现有 config/secrets。
+2. 解压部署 ZIP，把 `plugins/SkyIslandSystem-0.7.0-beta.2.jar` 放入服务器 plugins。教程、deploy、personas 属部署资料；examples 不覆盖现有 config/secrets。
 3. 启动一次，检查没有重复插件或初始化故障。首次迁移生成 `capabilities.json`，旧四影授权留下 pre-v070 时间戳备份。保留 shadow-discipline 文件的停权记录。
 4. 对专用 OpenClaw 实例重跑已有 Windows/Linux 部署脚本，同步五套 AGENTS/SOUL/TOOLS；差异旧文档有 `.bak`，五份 MEMORY 不覆盖。模型凭证只在目标机私下配置。
 5. 保持 `online-mode=false` 与现有身份认证。配置 `backup-directory`、`appeal-contact`、Gateway URL 和私有 token 后正常重启。不要开启 full-vanilla 或主机工具。

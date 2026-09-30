@@ -1,10 +1,10 @@
-# 交给OpenClaw的v0.7.0-beta.1部署提示词
+# 交给OpenClaw的v0.7.0-beta.2部署提示词
 
 复制下面内容给拥有目标机器权限的部署Agent，同时提供系统、Paper目录、专用账号权限、模型ID、EULA接受情况和凭证的本地配置方式。不要贴密钥。
 
 ---
 
-请在我指定的一台Paper1.20.1服务器部署SkyIslandSystem v0.7.0-beta.1。先读README、SETUP_GUIDE、deploy脚本、五套personas/AGENTS.md与SOUL.md、公共personas/TOOLS.md。
+请在我指定的一台Paper1.20.1服务器部署SkyIslandSystem v0.7.0-beta.2。先读README、SETUP_GUIDE、deploy脚本、五套personas/AGENTS.md与SOUL.md、公共personas/TOOLS.md。
 
 1. 检查Java17+、当前OpenClaw支持的Node、Paper1.20.1、已由我接受的EULA、磁盘、模型凭证与现有备份/守护。缺项明确报告，不宣称已完成。面板服检查Gateway与Paper是否同一容器，127.0.0.1只指向当前容器。
 2. 正常停Paper，备份世界与插件私有目录，替换旧JAR。保留身份、法令、案件、处罚、保管记录、快照、agent-jobs.json和五角色已有记忆，不混入其他项目会话。

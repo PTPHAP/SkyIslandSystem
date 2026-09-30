@@ -17,7 +17,7 @@ function Assert-Smoke([bool]$Condition, [string]$Message) {
 try {
   New-Item -ItemType Directory -Path $mockBin, (Join-Path $paperRoot 'plugins'), $profileRoot -Force | Out-Null
   Set-Content -LiteralPath (Join-Path $paperRoot 'eula.txt') -Value 'eula=true' -Encoding ASCII
-  Set-Content -LiteralPath (Join-Path $paperRoot 'plugins\SkyIslandSystem-0.7.0-beta.1.jar') -Value 'fixture' -Encoding ASCII
+  Set-Content -LiteralPath (Join-Path $paperRoot 'plugins\SkyIslandSystem-0.7.0-beta.2.jar') -Value 'fixture' -Encoding ASCII
 
   Add-Type -AssemblyName System.IO.Compression
   Add-Type -AssemblyName System.IO.Compression.FileSystem

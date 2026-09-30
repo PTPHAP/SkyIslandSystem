@@ -32,7 +32,7 @@
 
 每位角色都有独立工作区、固定会话标识和独立记忆。普通案件由法涅斯先审理并委派四影；普通世界动作经过审批和插件校验。插件留证的严重高频事件允许对应执政直接收紧同信号法令。
 
-## ✦ v0.7.0-beta.1 当前功能
+## ✦ v0.7.0-beta.2 当前功能
 
 测试版：细分权能、自编世界程序、经验与动态委托已经接入。真实目标模型尚待验收，程序试运行及活动临时变化的覆盖限制见下文。
 
@@ -173,17 +173,17 @@ gradlew.bat build
 ./gradlew build
 ```
 
-当前版本输出：`build/libs/SkyIslandSystem-0.7.0-beta.1.jar`。运行 `gradlew.bat deployZip` / `./gradlew deployZip` 生成 `dist/` 部署 ZIP、JAR 和 SHA256 校验清单；测试驱动不包含在部署包中。
+当前版本输出：`build/libs/SkyIslandSystem-0.7.0-beta.2.jar`。运行 `gradlew.bat deployZip` / `./gradlew deployZip` 生成 `dist/` 部署 ZIP、JAR 和 SHA256 校验清单；测试驱动不包含在部署包中。
 
 ## 📝 更新记录
 
-### v0.7.0-beta.1 · 自主治理与世界程序（2026-10-01）
+### v0.7.0-beta.2 · 自主治理与世界程序（2026-10-01）
 
 - 细分授权、结构化分页证据、无固定查询轮数的续办、角色私有真实经验。
 - 法涅斯发布带版本/断言/试运行的世界程序；三类自愿动态委托与一次性物品/声望奖励。
 - 修复程序新任务被旧去重拦截，保留暂停/重启游标、快照并发保护、旧授权备份迁移。
-- 更新五套人格、部署提示词、升级教程与20案模型清单。43项单元、21项隔离Paper断言通过；目标模型尚未接通，完整部署和长期性能待验收。
-- [下载测试版](https://github.com/PTPHAP/SkyIslandSystem/releases/tag/v0.7.0-beta.1) · [更新说明](docs/CHANGELOG-v0.7.0.md) · [测试教程](docs/TESTING-v0.7.0.md)。
+- 更新五套人格、部署提示词、升级教程与20案模型清单。44项单元、21项隔离Paper断言通过；目标模型尚未接通，完整部署和长期性能待验收。
+- [下载测试版](https://github.com/PTPHAP/SkyIslandSystem/releases/tag/v0.7.0-beta.2) · [更新说明](docs/CHANGELOG-v0.7.0.md) · [测试教程](docs/TESTING-v0.7.0.md)。
 
 ### v0.6.1 · 可靠性修复（2026-09-30）
 
