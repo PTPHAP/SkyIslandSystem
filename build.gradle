@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'dev.skyisland'
-version = '0.6.1'
+version = '0.7.0-beta.1'
 
 repositories {
     mavenCentral()
@@ -33,4 +33,32 @@ processResources {
     from('personas/TOOLS.md') { rename { 'tool-guide.md' } }
     inputs.property('pluginVersion', project.version)
     filesMatching('plugin.yml') { expand(version: project.version) }
+}
+
+// Isolated acceptance driver; deliberately excluded from the distributable plugin/ZIP.
+sourceSets { smoke { java.srcDir 'scripts/paper-fixture'; compileClasspath += sourceSets.main.compileClasspath } }
+tasks.register('smokeJar', Jar) {
+    dependsOn smokeClasses
+    archiveFileName = 'SkyIslandTestDriver.jar'
+    from sourceSets.smoke.output
+    from('scripts/paper-fixture/plugin.yml')
+}
+
+tasks.register('deployZip', Zip) {
+    dependsOn jar
+    archiveFileName = "SkyIslandSystem-${project.version}-deploy.zip"
+    destinationDirectory = layout.projectDirectory.dir('dist')
+    from(tasks.jar) { into 'plugins' }
+    from('README.md', 'SETUP_GUIDE.md', 'DEPLOY_PROMPT.md', 'ROADMAP.md', 'LICENSE')
+    ['deploy', 'personas', 'lore', 'docs'].each { dir -> from(dir) { into dir } }
+    from('src/main/resources/config.yml') { into 'examples'; rename { 'config.example.yml' } }
+    from('src/main/resources/secrets.example.yml') { into 'examples' }
+    doLast {
+        def jarFile = tasks.jar.archiveFile.get().asFile
+        copy { from jarFile; into 'dist' }
+        def files = [file("dist/${jarFile.name}"), archiveFile.get().asFile]
+        file("dist/SHA256SUMS-${project.version}.txt").text = files.collect { f ->
+            java.security.MessageDigest.getInstance('SHA-256').digest(f.bytes).encodeHex().toString() + '  ' + f.name
+        }.join('\n') + '\n'
+    }
 }

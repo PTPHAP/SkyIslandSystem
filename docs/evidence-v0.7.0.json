@@ -1,0 +1,29 @@
+{
+  "version": "0.7.0-beta.1",
+  "date": "2026-10-01",
+  "environment": "isolated Paper 1.20.1 / Java17 / offline protocol bot / preset HTTP1.1 gateway",
+  "real_model_tested": false,
+  "checks": {
+    "initialized": true,
+    "fine_allowed": true,
+    "fine_denied": true,
+    "cross_duty": true,
+    "revoke_denied": true,
+    "external_rejected": true,
+    "trial_started": true,
+    "safe_zone": true,
+    "trial_actual_and_restored": true,
+    "published": true,
+    "public_task_filtered": true,
+    "reward_once": true,
+    "reputation_once": true,
+    "completed_record": true,
+    "published_run": true,
+    "concurrent_change_preserved": true,
+    "restore_conflict_recorded": true,
+    "pause_preserved": true,
+    "restart_cursor_resumed": true,
+    "gateway_eight_queries": true,
+    "session_role_routing": true
+  }
+}

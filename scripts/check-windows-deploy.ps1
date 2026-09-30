@@ -17,7 +17,7 @@ function Assert-Smoke([bool]$Condition, [string]$Message) {
 try {
   New-Item -ItemType Directory -Path $mockBin, (Join-Path $paperRoot 'plugins'), $profileRoot -Force | Out-Null
   Set-Content -LiteralPath (Join-Path $paperRoot 'eula.txt') -Value 'eula=true' -Encoding ASCII
-  Set-Content -LiteralPath (Join-Path $paperRoot 'plugins\SkyIslandSystem-0.6.1.jar') -Value 'fixture' -Encoding ASCII
+  Set-Content -LiteralPath (Join-Path $paperRoot 'plugins\SkyIslandSystem-0.7.0-beta.1.jar') -Value 'fixture' -Encoding ASCII
 
   Add-Type -AssemblyName System.IO.Compression
   Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -107,6 +107,13 @@ exit 4
   $stateRoot = Join-Path $profileRoot '.openclaw-skyisland'
   New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
   [IO.File]::WriteAllText((Join-Path $stateRoot 'openclaw.json'), '{}', [Text.Encoding]::ASCII)
+  foreach ($role in $expectedRoles) {
+    $workspace = Join-Path $stateRoot ('workspaces\' + $role)
+    New-Item -ItemType Directory -Path $workspace -Force | Out-Null
+    foreach ($name in @('AGENTS.md','SOUL.md','TOOLS.md')) { [IO.File]::WriteAllText((Join-Path $workspace $name), ('custom ' + $name), [Text.Encoding]::ASCII) }
+    [IO.File]::WriteAllText((Join-Path $workspace 'MEMORY.md'), "PRIVATE MEMORY PRESERVED`n", [Text.Encoding]::ASCII)
+  }
+
   $oldPath = $env:Path
   $oldProfile = $env:USERPROFILE
   $oldLocalAppData = $env:LOCALAPPDATA
@@ -121,8 +128,11 @@ exit 4
   New-Item -ItemType Directory -Path $env:LOCALAPPDATA, $env:APPDATA -Force | Out-Null
   $env:SMOKE_LOG = $mockLogPath
   try {
+    foreach ($pass in 1..2) {
     $childProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $scriptCopy + '" -PaperRoot "' + $paperRoot + '" -ModelId "smoke/provider-model"') -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput $childStdoutPath -RedirectStandardError $childStderrPath
     $childExit = $childProcess.ExitCode
+    if ($childExit -ne 0) { break }
+    }
   } finally {
     $env:Path = $oldPath
     $env:USERPROFILE = $oldProfile
@@ -161,6 +171,17 @@ exit 4
   $mockLog = [IO.File]::ReadAllText($mockLogPath)
   Assert-Smoke ($mockLog.Contains('openclaw config patch') -and $mockLog.Contains('openclaw config validate') -and $mockLog.Contains('icacls-mock')) 'Expected OpenClaw/ACL shims were not used.'
 
+  $backups = @(Get-ChildItem -LiteralPath (Join-Path $stateRoot 'workspaces') -Filter '*.bak' -Recurse)
+  Assert-Smoke ($backups.Count -eq 15) 'Repeated sync must preserve exactly the 15 changed original files.'
+  foreach ($role in $expectedRoles) {
+    $workspace = Join-Path $stateRoot ('workspaces\' + $role)
+    Assert-Smoke ([IO.File]::ReadAllText((Join-Path $workspace 'MEMORY.md')) -eq "PRIVATE MEMORY PRESERVED`n") 'Private role memory changed during sync.'
+    foreach ($name in @('AGENTS.md','SOUL.md','TOOLS.md')) {
+      $source = if ($name -eq 'TOOLS.md') { Join-Path $repoRoot ('personas\' + $name) } else { Join-Path $repoRoot ('personas\' + $role + '\' + $name) }
+      Assert-Smoke ((Get-FileHash -LiteralPath (Join-Path $workspace $name)).Hash -eq (Get-FileHash -LiteralPath $source).Hash) 'Synced document differs from source.'
+    }
+  }
+  Write-Output 'PASS: Actual persona copy repeated; 15 backups and five memories preserved.'
   Write-Output 'PASS: Windows PowerShell 5.1 deployment config-generation smoke.'
   Write-Output 'PASS: Paper checks, five-agent patch, isolation settings, token files, launcher, and mock host commands.'
 } finally {

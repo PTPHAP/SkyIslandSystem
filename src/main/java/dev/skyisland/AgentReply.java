@@ -45,7 +45,7 @@ record AgentReply(String message, JsonObject action, String delegateRole, String
     }
 
     private static String firstObject(String raw) {
-        if (raw == null || raw.length() > 16_384) throw new IllegalArgumentException("回复过长");
+        if (raw == null || raw.length() > 65_536) throw new IllegalArgumentException("回复过长");
         int start = raw.indexOf('{');
         if (start < 0) throw new IllegalArgumentException("缺少 JSON 对象");
         int depth = 0;

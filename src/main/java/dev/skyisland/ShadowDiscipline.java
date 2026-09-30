@@ -22,7 +22,7 @@ final class ShadowDiscipline {
         "relieve_entity_pressure", "minecraft_command", "add_time", "world_query", "punish_player", "give_item", "confiscate_item", "restore_items", "set_effect", "set_player_mode", "undo_blocks");
     private final Path file;
     static boolean known(String type) {
-        return TYPES.contains(type) || Set.of("declare_plan","schedule_season","set_shadow_scope","pardon_shadow","pardon_player","close_case","memory_note").contains(type);
+        return CapabilityCatalog.known(type);
     }
     private final Map<AgentRole, State> states = new EnumMap<>(AgentRole.class);
 
@@ -88,6 +88,11 @@ final class ShadowDiscipline {
             return "权能暂停至 " + Instant.ofEpochMilli(state.suspendedUntil);
         if (!state.allowed.contains(type)) return "越界权能 " + type;
         return "";
+    }
+
+    String suspension(AgentRole role) {
+        State state=states.get(role);
+        return state!=null && state.suspendedUntil>System.currentTimeMillis()?"权能暂停至 "+Instant.ofEpochMilli(state.suspendedUntil):"";
     }
 
     String violate(AgentRole role, String reason) {

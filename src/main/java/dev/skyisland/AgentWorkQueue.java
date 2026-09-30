@@ -40,10 +40,11 @@ final class AgentWorkQueue {
         JsonObject j = new JsonObject(); j.addProperty("role", role.id); j.addProperty("prompt", prompt);
         j.addProperty("task", task); j.addProperty("case_context", caseContext);
         j.addProperty("mode", mode); j.addProperty("next", 0); jobs.add(id, j); save(); callbacks.put(id, callback);
+        j.addProperty("priority",prompt.contains("紧急")?0:mode.equals("meeting")||prompt.contains("活动")?2:1);save();
     }
     void tick() {
         if (!client.configured() || plugin.aiPaused()) return;
-        for (String id : java.util.List.copyOf(jobs.keySet())) {
+        for (String id : jobs.keySet().stream().sorted(java.util.Comparator.comparingInt(k->jobs.getAsJsonObject(k).has("priority")?jobs.getAsJsonObject(k).get("priority").getAsInt():1)).toList()) {
             if (running.size() >= 2) break;
             JsonObject job = jobs.getAsJsonObject(id);
             AgentRole role = AgentRole.parse(job.get("role").getAsString());
@@ -85,6 +86,7 @@ final class AgentWorkQueue {
                 }
                 job.addProperty("reply", wire.toString()); save(); reply = AgentReply.parse(wire.toString());
             }
+            if(plugin.aiPaused()){if(!job.has("reply"))job.addProperty("reply",reply.message());save();return;}
             BiConsumer<AgentReply, Throwable> callback = callbacks.get(id);
             if (callback != null) callback.accept(reply, null);
             else recover(role,job,reply);

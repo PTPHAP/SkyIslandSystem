@@ -1,0 +1,8 @@
+name: SkyIslandTestDriver
+main: dev.skyisland.test.Fixture
+version: '0.7'
+api-version: '1.20'
+depend: [SkyIslandSystem]
+commands:
+  sifixture:
+    permission: skyisland.admin

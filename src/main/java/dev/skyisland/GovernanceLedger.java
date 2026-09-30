@@ -14,7 +14,7 @@ final class GovernanceLedger {
         this.folder = folder.resolve("governance");
         index = JsonState.read(this.folder.resolve("index.json"));
         if(index.has("version") && index.get("version").getAsInt()!=1)throw new IllegalStateException("治理档案版本不受支持，保留原文件；请使用对应插件版本");
-        for (String name : List.of("cases", "operations", "notes", "meetings", "profiles", "sanctions", "escrow"))
+        for (String name : List.of("cases", "operations", "notes", "meetings", "profiles", "sanctions", "escrow", "programs", "program_runs", "experience", "activities", "region_edits", "investigations"))
             if (!index.has(name)) index.add(name, new JsonObject());
         index.addProperty("version", 1);
     }
@@ -69,7 +69,7 @@ final class GovernanceLedger {
     }
     private JsonObject document(String id) {
         JsonObject c=requireCase(id).deepCopy();
-        for(String key:java.util.List.copyOf(c.keySet()))if(key.startsWith("budget_") || key.equals("lastResume"))c.remove(key);
+        for(String key:java.util.List.copyOf(c.keySet()))if(key.startsWith("budget_") || key.startsWith("runtime_") || key.equals("lastResume"))c.remove(key);
         for(String name:java.util.List.of("sanctions","escrow")) {
             JsonObject related=new JsonObject();
             for(var entry:section(name).entrySet())if(id.equals(AgentReply.string(entry.getValue().getAsJsonObject(),"case_id", ""))) {

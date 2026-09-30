@@ -47,6 +47,7 @@ final class EntityPressure {
 
     private final JavaPlugin plugin;
     private final Path quotaFile;
+    private final Path caseFile;
     private final Consumer<Incident> opened;
     private final Consumer<String> audit;
     private final Map<Key, Sample> samples = new HashMap<>();
@@ -64,8 +65,11 @@ final class EntityPressure {
     EntityPressure(JavaPlugin plugin, Consumer<Incident> opened, Consumer<String> audit) {
         this.plugin = plugin;
         quotaFile = plugin.getDataFolder().toPath().resolve("entity-quota.properties");
+        caseFile = plugin.getDataFolder().toPath().resolve("entity-cases.json");
         this.opened = opened;
         this.audit = audit;
+        JsonObject saved=JsonState.read(caseFile);
+        for(var entry:saved.entrySet()){JsonObject c=entry.getValue().getAsJsonObject();Key key=new Key(UUID.fromString(c.get("world").getAsString()),c.get("x").getAsInt(),c.get("z").getAsInt(),Kind.valueOf(c.get("kind").getAsString()));Incident incident=new Incident(entry.getKey(),key,c.get("count").getAsInt(),false,0);cases.put(key,incident);byId.put(incident.id(),key);}
         if (Files.exists(quotaFile)) {
             Properties data = new Properties();
             try (InputStream in = Files.newInputStream(quotaFile)) {
@@ -104,6 +108,7 @@ final class EntityPressure {
                 audit.accept("entity-case-closed id=" + cases.get(key).id() + " reason=chunk-unloaded-or-pressure-ended");
                 return true;
             });
+            saveCases();
         }
     }
 
@@ -160,6 +165,8 @@ final class EntityPressure {
         return incident;
     }
 
+    private void saveCases(){JsonObject out=new JsonObject();for(Incident i:cases.values()){JsonObject c=new JsonObject();c.addProperty("world",i.key.world.toString());c.addProperty("x",i.key.x);c.addProperty("z",i.key.z);c.addProperty("kind",i.key.kind.name());c.addProperty("count",i.count);out.add(i.id,c);}JsonState.write(caseFile,out);}
+
     void validate(JsonObject action) {
         if (require(WorldActions.string(action, "incident_id")).key.kind == Kind.ANIMAL)
             throw new IllegalArgumentException("普通动物案件只上报，不允许自动清理");
@@ -168,8 +175,7 @@ final class EntityPressure {
     void relieve(JsonObject action, AgentRole actor, Consumer<String> report) {
         Incident incident = require(WorldActions.string(action, "incident_id"));
         if (incident.key.kind == Kind.ANIMAL) throw new IllegalArgumentException("普通动物案件只上报，不允许自动清理");
-        if (actor != AgentRole.PHANES && actor != incident.owner())
-            throw new IllegalArgumentException("此实体案件不属于当前执政权能");
+        // The caller checks the fine capability, including a Phanes cross-duty grant.
         relieve(incident, actor.id, report);
     }
 
@@ -330,5 +336,14 @@ final class EntityPressure {
                 .append(" emergency=").append(incident.emergency);
         }
         return out.toString();
+    }
+
+    java.util.List<JsonObject> observations() {
+        java.util.List<JsonObject> rows=new java.util.ArrayList<>();
+        for(Incident incident:cases.values()) {
+            World w=Bukkit.getWorld(incident.key.world);if(w==null||!w.isChunkLoaded(incident.key.x,incident.key.z))continue;
+            JsonObject row=new JsonObject();row.addProperty("incident_id",incident.id);row.addProperty("world",w.getName());row.addProperty("chunk_x",incident.key.x);row.addProperty("chunk_z",incident.key.z);row.addProperty("target_type",incident.key.kind.name());row.addProperty("count",incident.count);row.addProperty("emergency",incident.emergency);row.addProperty("updated_at",incident.updatedAt);rows.add(row);
+        }
+        rows.sort(java.util.Comparator.comparing(r->r.get("incident_id").getAsString()));return rows;
     }
 }

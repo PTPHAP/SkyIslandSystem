@@ -91,7 +91,7 @@ final class PlayerGovernance implements Listener {
         meta.setTitle("天空岛 · 降临者引导"); meta.setAuthor("天空岛体系");
         meta.setPages("欢迎，降临者。\n本服以原神天空岛意象创作，并非官方剧情。\n探索、建造与合作是日常玩法。\n五执政根据真实证据维护世界。",
             "公开法度：/skyisland laws\n个人身份：/skyisland profile\n案件：/skyisland cases\n查看：/skyisland case <ID>\n申诉：/skyisland appeal <ID> <理由>\n完成引导：/skyisland guide complete",
-            plugin.publicLaws(), "处罚会提供案件编号、理由和期限。\n管理员豁免处罚。\n被封禁后外部申诉：" + contact());
+            plugin.publicLaws(), "地脉委托：/skyisland tasks\n详情：/skyisland task <ID>\n报名：/skyisland join <ID>\n退出：/skyisland leave <ID>\n自愿参与，真实目标验证后结算物品与声望。", "处罚会提供案件编号、理由和期限。\n管理员豁免处罚。\n被封禁后外部申诉：" + contact());
         book.setItemMeta(meta); p.openBook(book);
         p.sendMessage("§e已打开引导书。阅读后 /skyisland guide complete 领取身份称号。");
     }

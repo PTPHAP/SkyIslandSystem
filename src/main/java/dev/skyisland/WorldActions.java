@@ -85,7 +85,7 @@ final class WorldActions implements AutoCloseable {
         String id = UUID.randomUUID().toString().substring(0, 8);
         return switch (type) {
             case "set_time", "add_time", "world_query", "set_weather", "set_gamerule", "set_border", "teleport",
-                "spawn_entity", "remove_entity" -> new Prepared(id, action.deepCopy(), "");
+                "spawn_entity", "remove_entity", "relocate_entity" -> new Prepared(id, action.deepCopy(), "");
             case "set_blocks" -> new Prepared(id, action.deepCopy(), partitions(action).size() > 1 ? "PARTITIONED" : complexReason(action));
             default -> throw new IllegalArgumentException("不支持的世界动作: " + type);
         };
@@ -105,6 +105,7 @@ final class WorldActions implements AutoCloseable {
                 case "teleport" -> teleport(a);
                 case "spawn_entity" -> spawn(a);
                 case "remove_entity" -> remove(a);
+                case "relocate_entity" -> relocate(a);
                 case "set_blocks" -> { blocks(prepared, report); yield null; }
                 default -> throw new IllegalArgumentException("动作类型失效");
             };
@@ -136,6 +137,9 @@ final class WorldActions implements AutoCloseable {
         else if (rule.equals("doWeatherCycle")) w.setGameRule(GameRule.DO_WEATHER_CYCLE, a.get("value").getAsBoolean());
         else if (rule.equals("doMobSpawning")) w.setGameRule(GameRule.DO_MOB_SPAWNING, a.get("value").getAsBoolean());
         else if (rule.equals("randomTickSpeed")) w.setGameRule(GameRule.RANDOM_TICK_SPEED, (int) number(a, "value", 0, 20));
+        else if (rule.equals("keepInventory")) w.setGameRule(GameRule.KEEP_INVENTORY, a.get("value").getAsBoolean());
+        else if (rule.equals("doEntityDrops")) w.setGameRule(GameRule.DO_ENTITY_DROPS, a.get("value").getAsBoolean());
+        else if (rule.equals("doMobLoot")) w.setGameRule(GameRule.DO_MOB_LOOT, a.get("value").getAsBoolean());
         else throw new IllegalArgumentException("未授权的游戏规则");
         return w.getName() + " 游戏规则 " + rule + " 已调整";
     }
@@ -203,6 +207,18 @@ final class WorldActions implements AutoCloseable {
             || entity instanceof Item item && (item.getOwner() != null || item.getThrower() != null || item.getItemStack().hasItemMeta())) throw new IllegalArgumentException("仅可移除未命名的怪物或掉落物");
         entity.remove();
         return "已移除实体 " + id;
+    }
+
+    private String relocate(JsonObject a) {
+        Entity e=Bukkit.getEntity(UUID.fromString(string(a,"uuid")));
+        if(e==null || !(e instanceof org.bukkit.entity.Animals || e instanceof Monster) || WorldInvestigation.protectedEntity(e))
+            throw new IllegalArgumentException("只能迁移已调查的无归属、未命名动物或怪物；宠物、栓绳及归属数据受保护");
+        if(e.getWorld().getPlayers().stream().anyMatch(p->p.getLocation().distanceSquared(e.getLocation())<32*32))
+            throw new IllegalArgumentException("实体位于玩家农场或活动附近，须重新调查，不自动迁移");
+        Location at=location(a);if(!safeLanding(at))throw new IllegalArgumentException("迁移目的地不安全或未加载");
+        if(at.getWorld().getNearbyEntities(at,8,8,8).size()>=16)throw new IllegalArgumentException("迁移目标已有过多实体，不能把压力转移到另一处");
+        if(!e.teleport(at))throw new IllegalArgumentException("迁移被服务器事件取消，未完成");
+        return "实体迁移完成："+e.getUniqueId()+" 至 "+at.toVector()+"，未删除生物";
     }
 
     private String complexReason(JsonObject a) {

@@ -14,7 +14,7 @@
 
 下载 Release JAR，或下载部署包 ZIP 并取出其中的 JAR，放入 Paper 的 `plugins/`，启动一次服务器，生成 `plugins/SkyIslandSystem/config.yml`，然后正常停止。部署资料还包含五位角色各自的 `AGENTS.md` 操作协议、`SOUL.md` 人格文件和 [原著依据表](lore/README.md)。管理员权限节点为 `skyisland.admin`；OP 默认拥有。插件即使没有配置 OpenClaw 也能启动、显示指标和运行本地防护。
 
-从旧版升级时先备份 `plugins/SkyIslandSystem/`，停服后移走旧版 JAR，避免两个版本同时加载。v0.6.1 同时更新 Paper JAR 与五套 `AGENTS.md`；重新运行部署脚本会把 `AGENTS.md`、`SOUL.md` 同步到专用 OpenClaw 工作区。已有文件若与新版不同，会先留下带时间戳的 `.bak`；各角色 `MEMORY.md` 保持原样。重启 Gateway 后分别提问确认新文档已加载。旧四影权能记录首次迁移时会保存 `shadow-discipline.pre-v0.6.0.properties`，并移除伊斯塔露的默认天气权能。若旧法令阈值过低，插件仍会备份并恢复安全默认值。
+从旧版升级时先备份 `plugins/SkyIslandSystem/`，停服后移走旧版 JAR，避免两个版本同时加载。v0.7.0-beta.1 同时更新 Paper JAR 与五套 `AGENTS.md`；重新运行部署脚本会把 `AGENTS.md`、`SOUL.md` 同步到专用 OpenClaw 工作区。已有文件若与新版不同，会先留下带时间戳的 `.bak`；各角色 `MEMORY.md` 保持原样。重启 Gateway 后分别提问确认新文档已加载。旧四影权能记录首次迁移时会保存 `shadow-discipline.pre-v0.6.0.properties`，并移除伊斯塔露的默认天气权能。若旧法令阈值过低，插件仍会备份并恢复安全默认值。
 
 **离线服首次启用 v0.5.0**：新玩家入服后输入无参数命令 `/skyisland register`，再按提示在**下一条普通聊天**输入 `密码 重复密码`。有旧存档的玩家须由服主在面板的**服务器控制台**执行 `skyisland claim <原玩家名或UUID>`，核对 UUID 与旧存档一致，把控制台显示的一次性认领码私下交给该玩家。玩家随后输入 `/skyisland register`，下一条普通聊天输入 `密码 重复密码 认领码`；重进输入 `/skyisland login`，下一条普通聊天输入密码。已登录后改密用 `/skyisland passwd`，下一条普通聊天输入 `旧密码 新密码 重复新密码`。**绝不要把密码写进斜杠命令**，Paper 会在插件处理之前记录命令。密码须为 12 至 64 字，并且与其他网站和服务器的密码不同。插件会取消并遮盖密码聊天事件，但其他插件仍可能读取聊天事件，须检查其日志行为。切勿把密码或认领码发给 OpenClaw。将 `plugins/SkyIslandSystem/identities.properties` 与世界存档一起备份；身份文件损坏时插件会拒绝离线玩家登录，不会自动清空账号。
 
@@ -82,9 +82,9 @@ Windows 本地 Paper 可把 `deploy/start-paper-windows.bat` 复制到 Paper 根
 
 ## 6. 真实验收
 
-按 [v0.6.1测试教程](docs/TESTING-v0.6.1.md) 分别检查安装、实际模型联通、世界自治、处罚复核、故障恢复和玩家体验。`doctor` 仅检查角色列表；五位真实应答、人格差异、固定会话记忆隔离都必须另测。
+按 [v0.7.0测试教程](docs/TESTING-v0.7.0.md) 分别检查安装、实际模型联通、世界自治、处罚复核、故障恢复和玩家体验。`doctor` 仅检查角色列表；五位真实应答、人格差异、固定会话记忆隔离都必须另测。
 
-本地已验证和目标环境未验证项见 [验收记录](docs/ACCEPTANCE-v0.6.1.md)。模拟网关测试不证明目标模型已经会主动治理，也不证明部署脚本已在目标Windows/Linux账号完整安装。
+本地已验证和目标环境未验证项见 [验收记录](docs/ACCEPTANCE-v0.7.0.md)。模拟网关测试不证明目标模型已经会主动治理，也不证明部署脚本已在目标Windows/Linux账号完整安装。
 
 私有证据位于 plugins/SkyIslandSystem/audit.log、guard-evidence.log、governance/、agent-jobs.json 和 snapshots/。排查请求失败检查目标Gateway、模型凭证、端口、五角色配置和私有token，不公开凭证或完整玩家档案。
 
@@ -96,3 +96,11 @@ Windows 本地 Paper 可把 `deploy/start-paper-windows.bat` 复制到 Paper 根
 `pause` 会写入 `ai-paused` 并在下一批前停止世界编辑、撤销和实体移除。重启后保持暂停；`resume` 重新核对并续办 AI 暂停编辑/撤销。管理员手动 `undo` 若暂停，需要恢复后再次提交同一子快照 ID。实体任务重启后重新巡查，不承诺保留内存中的扫描游标。
 
 若治理档案坏损，密码门禁保留，普通玩家认证后仍被拒绝进入；已认证管理员和控制台用 `doctor` 查看原因。恢复可靠备份并正常重启，不删除档案绕过处罚。旧版包含方块实体的复杂快照缺少完整冲突指纹，拒绝自治撤销；请核对外部备份。普通旧快照仍可按原有条件恢复。
+
+## v0.7.0-beta.1 升级注意
+
+同时更新JAR与五角色文档，不覆盖MEMORY与私有token。首次授权迁移保存旧shadow-discipline.properties的pre-v070时间戳备份，生成capabilities.json；原自定义差异按具体操作迁移，默认职责以新版目录为准。身份、案件、处罚、程序、活动、经验、快照和队列仍属于本项目私有状态。
+
+玩家认证后可用tasks/task/join/leave参加自愿委托；管理员用capabilities/tools/experience和面板查看。程序安全试运行的变化动作当前仅支持普通方块，活动临时变化仅使用快照方块。不要在正式世界尝试未验收的条件分支，不把程序排队或角色意见当成功。
+
+本版不新增反作弊引擎，不开放插件源码写入。模型通过真实结果改进程序和策略，不是自动训练模型。真实OpenClaw验收按docs/MODEL-EVAL-v0.7.0.md的20案分别记录；缺项时保持测试版结论。
