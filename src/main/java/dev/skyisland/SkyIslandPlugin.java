@@ -724,6 +724,7 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
             try { measured=investigate(reply.query(), role); } catch(RuntimeException invalid){measured=new JsonObject();measured.addProperty("status","REJECTED");measured.addProperty("reason",invalid.getMessage());}
             String result=measured.toString();
             if(!caseId.isBlank())ledger.record(caseId,"measurement",role.id,
+                java.util.Set.of("memory","experience").contains(WorldActions.string(reply.query(),"type"))?"本人私人记忆/经验查询；内容未写入共享案件":
                 WorldActions.string(reply.query(),"type").equals("case_evidence")?"查阅已保存的案件证据；查询="+reply.query():result);
             String progress=investigation.observe(caseId,role,reply.query(),measured);
             if(progress.equals("WAIT_REVIEW")){if(!caseId.isBlank())ledger.status(caseId,"WAIT_REVIEW");notifyAdmins("重复调查没有新证据，已进入待复查："+caseId);return;}
@@ -824,6 +825,8 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
 
     private JsonObject targetContext(JsonObject source) {
         JsonObject a=source.deepCopy();String type=WorldActions.string(a,"type");a.remove("_target_type");
+        if(java.util.Set.of("remove_entity","relocate_entity","teleport","spawn_entity","give_item","set_effect","set_player_mode","confiscate_item").contains(type))
+            for(String key:List.of("x1","y1","z1","x2","y2","z2"))a.remove(key);
         if(java.util.Set.of("remove_entity","relocate_entity").contains(type)) {
             Entity e=Bukkit.getEntity(UUID.fromString(WorldActions.string(a,"uuid")));if(e==null)throw new IllegalArgumentException("实体已不存在，重新查询 entities");
             a.addProperty("_target_type",WorldInvestigation.target(e));
@@ -831,8 +834,16 @@ public final class SkyIslandPlugin extends JavaPlugin implements CommandExecutor
         }else if(type.equals("relieve_entity_pressure")) {
             EntityPressure.Incident incident=pressure.require(WorldActions.string(a,"incident_id"));a.addProperty("_target_type",incident.key().kind().name());World w=Bukkit.getWorld(incident.key().world());a.addProperty("world",w.getName());a.addProperty("x1",incident.key().x()*16);a.addProperty("x2",incident.key().x()*16+15);a.addProperty("y1",w.getMinHeight());a.addProperty("y2",w.getMaxHeight()-1);a.addProperty("z1",incident.key().z()*16);a.addProperty("z2",incident.key().z()*16+15);
         }else if(type.equals("undo_blocks")) {
-            String id=WorldActions.string(a,"edit_id");if(!id.matches("[0-9a-f]{8}"))throw new IllegalArgumentException("快照编号无效");JsonObject previous=ledger.section("operations").getAsJsonObject(id);
-            if(previous!=null){JsonObject original=previous.getAsJsonObject("action");for(String key:List.of("world","x1","y1","z1","x2","y2","z2"))if(original.has(key))a.add(key,original.get(key));}
+            String id=WorldActions.string(a,"edit_id");if(!id.matches("[0-9a-f]{8}"))throw new IllegalArgumentException("快照编号无效");
+            java.util.Properties metadata=new java.util.Properties();try(var in=Files.newInputStream(getDataFolder().toPath().resolve("snapshots").resolve(id+".properties"))){metadata.load(in);}catch(java.io.IOException error){throw new IllegalArgumentException("快照不存在或元数据不可读，重新查询 snapshot_preview");}
+            World w=Bukkit.getWorld(UUID.fromString(metadata.getProperty("world")));if(w==null)throw new IllegalArgumentException("快照原世界尚未加载");a.addProperty("world",w.getName());
+            String[] coords=metadata.getProperty("coords").split(",");String[] keys={"x1","y1","z1","x2","y2","z2"};if(coords.length!=keys.length)throw new IllegalArgumentException("快照坐标元数据错误");for(int i=0;i<keys.length;i++)a.addProperty(keys[i],Integer.parseInt(coords[i]));
+        }else if(java.util.Set.of("punish_player","pardon_player","restore_items").contains(type)) {
+            String subject;
+            if(type.equals("punish_player"))subject=ledger.requireCase(WorldActions.string(a,"case_id")).get("subject").getAsString();
+            else {String section=type.equals("pardon_player")?"sanctions":"escrow",key=type.equals("pardon_player")?"sanction_id":"escrow_id";JsonObject record=ledger.section(section).getAsJsonObject(WorldActions.string(a,key));if(record==null)throw new IllegalArgumentException("处罚或保管编号不存在");subject=record.get("subject").getAsString();}
+            for(String key:List.of("world","x","y","z","x1","y1","z1","x2","y2","z2"))a.remove(key);a.addProperty("_target_type","PLAYER");Player p=Bukkit.getPlayer(UUID.fromString(subject));
+            if(p!=null)WorldInvestigation.position(p.getLocation()).entrySet().forEach(x->a.add(x.getKey(),x.getValue()));
         }else if(java.util.Set.of("give_item","set_effect","set_player_mode","confiscate_item").contains(type)) {
             Player p=Bukkit.getPlayerExact(WorldActions.string(a,"player"));if(p!=null){JsonObject pos=WorldInvestigation.position(p.getLocation());pos.entrySet().forEach(x->a.add(x.getKey(),x.getValue()));a.addProperty("_target_type","PLAYER");}
         }

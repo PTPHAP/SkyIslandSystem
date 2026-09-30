@@ -73,4 +73,9 @@ class V070GovernanceTest {
         CapabilityGrants grants=new CapabilityGrants(folder);for(String cap:java.util.List.of("op","file.read","host.exec","minecraft_command"))assertThrows(IllegalArgumentException.class,()->grants.validate(json("{role:'ronova',capability:'"+cap+"'}")));
         assertThrows(IllegalArgumentException.class,()->grants.validate(json("{role:'ronova',capability:'time.set',region:{x1:0,y1:0,z1:0,x2:1,y2:1,z2:1}}")));
     }
+    @Test void worldWideRulesCannotPretendToBeRegionalChanges() {
+        CapabilityGrants grants=new CapabilityGrants(folder);
+        assertThrows(IllegalArgumentException.class,()->grants.validate(json("{role:'ronova',capability:'rule.doMobSpawning',world:'world',region:{x1:0,y1:60,z1:0,x2:10,y2:80,z2:10}}")));
+        assertDoesNotThrow(()->grants.validate(json("{role:'ronova',capability:'rule.doMobSpawning',world:'world'}")));
+    }
 }

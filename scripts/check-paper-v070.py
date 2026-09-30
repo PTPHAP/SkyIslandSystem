@@ -39,6 +39,9 @@ query_count = 0
 class Gateway(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     def log_message(self, *_): pass
+    def handle(self):
+        try: super().handle()
+        except ConnectionResetError: pass  # Expected when the isolated Paper process stops.
     def do_POST(self):
         global query_count
         req = json.loads(self.rfile.read(int(self.headers['Content-Length'])))

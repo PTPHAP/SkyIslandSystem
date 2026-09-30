@@ -72,6 +72,9 @@ final class CapabilityGrants {
         if(a.has("world") && WorldActions.string(a,"world").isBlank())throw new IllegalArgumentException("world 不能为空");
         if(a.has("region")) {
             if(!a.has("world"))throw new IllegalArgumentException("区域授权须带 world");
+            String operation=CapabilityCatalog.ENTRIES.get(WorldActions.string(a,"capability")).action();
+            if(!java.util.Set.of("set_blocks","undo_blocks","teleport","spawn_entity","remove_entity","relocate_entity","relieve_entity_pressure","punish_player","pardon_player","give_item","confiscate_item","restore_items","set_effect","set_player_mode").contains(operation))
+                throw new IllegalArgumentException("此能力作用于整个世界或管理状态，不支持区域授权；使用 world/case_id 或具体区域工具");
             JsonObject r=a.getAsJsonObject("region");
             for(String axis:java.util.List.of("x","y","z")){double lo=WorldActions.number(r,axis+"1",-29999984,29999984),hi=WorldActions.number(r,axis+"2",-29999984,29999984);if(lo>hi)throw new IllegalArgumentException("区域最小值大于最大值");}
         }

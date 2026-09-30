@@ -31,6 +31,14 @@ public final class Fixture extends JavaPlugin {
         World w=Bukkit.getWorld("world");for(int cx=61;cx<=63;cx++)for(int cz=61;cz<=63;cz++){w.getChunkAt(cx,cz).load();w.setChunkForceLoaded(cx,cz,true);}
         for(int x=995;x<=1010;x++)for(int z=995;z<=1010;z++){w.getBlockAt(x,79,z).setType(Material.STONE);w.getBlockAt(x,80,z).setType(Material.STONE);for(int y=81;y<=85;y++)w.getBlockAt(x,y,z).setType(Material.AIR);}
         w.setGameRule(org.bukkit.GameRule.DO_MOB_SPAWNING,false);check("initialized",get(sky,"governanceFailure")==null);
+        Object ledger=get(sky,"ledger");String privateCase=(String)call(ledger,"open",null,"investigation",null,"fixture privacy");
+        call(ledger,"share",privateCase,ronova);call(ledger,"note",ronova,json("{text:'PRIVATE_RONOVA_FIXTURE'}"));
+        check("private_own_query",call(sky,"investigate",json("{type:'memory'}"),ronova).toString().contains("PRIVATE_RONOVA_FIXTURE"));
+        check("private_other_query",!call(sky,"investigate",json("{type:'memory'}"),istaroth).toString().contains("PRIVATE_RONOVA_FIXTURE"));
+        Class<?> replyClass=sky.getClass().getClassLoader().loadClass("dev.skyisland.AgentReply");Method parse=replyClass.getDeclaredMethod("parse",String.class);parse.setAccessible(true);
+        Object reply=parse.invoke(null,"{\"message\":\"fixture private investigation\",\"query\":{\"type\":\"memory\"}}");
+        call(sky,"handleDecision",ronova,"fixture privacy",null,"案件 "+privateCase,null,"",0,reply);
+        check("private_case_no_leak",!call(ledger,"caseSummary",privateCase,true).toString().contains("PRIVATE_RONOVA_FIXTURE"));
         check("fine_allowed",((String)call(sky,"authority",istaroth,json("{type:'set_gamerule',world:'world',rule:'doDaylightCycle',value:false}"))).isEmpty());
         check("fine_denied",!((String)call(sky,"authority",istaroth,json("{type:'set_gamerule',world:'world',rule:'doMobSpawning',value:false}"))).isEmpty());
         Object capabilities=get(sky,"capabilities");call(capabilities,"grant",json("{role:'ronova',capability:'time.set',world:'world',minutes:1}"),"070f0001",true);
@@ -45,6 +53,15 @@ public final class Fixture extends JavaPlugin {
     }
     private void activity(Player p)throws Exception {
         p.getInventory().clear();p.saveData();
+        Object ledger=get(sky,"ledger"),grants=get(sky,"capabilities");String caseId=(String)call(ledger,"open",null,"place",p.getUniqueId(),"fixture permission evidence");
+        call(grants,"grant",json("{role:'ronova',capability:'player.penalty.warn',world:'world',target_type:'PLAYER'}"),"070f0011",false);
+        JsonObject penalty=json("{type:'punish_player',kind:'warn',law:'place',reason:'fixture only',world:'world_nether'}");penalty.addProperty("case_id",caseId);
+        check("penalty_actual_target",!call(sky,"authority",ronova,penalty).toString().isBlank());call(grants,"revoke","070f0011");
+        boolean exempt=false;p.setOp(true);try{call(get(sky,"playerGovernance"),"validate",penalty);}catch(Exception expected){exempt=expected.getMessage().contains("管理员");}finally{p.setOp(false);((JsonObject)call(ledger,"section","profiles")).getAsJsonObject(p.getUniqueId().toString()).addProperty("admin",false);call(ledger,"save");}
+        check("admin_penalty_exempt",exempt);
+        JsonObject localGrant=json("{role:'ronova',capability:'item.reward',world:'world'}");localGrant.add("region",zone());call(grants,"grant",localGrant,"070f0012",true);
+        JsonObject fakePosition=json("{type:'give_item',material:'DIAMOND',count:1,x1:1001,y1:81,z1:1001,x2:1001,y2:81,z2:1001}");fakePosition.addProperty("player",p.getName());
+        check("point_scope_not_spoofed",!call(sky,"authority",ronova,fakePosition).toString().isBlank());call(grants,"revoke","070f0012");
         JsonObject a=json("{kind:'ley_line',title:'fixture cooperation',world:'world',minutes:3,goal:{metric:'visits',compare:'ge',value:6},reward:{material:'DIAMOND',count:2,reputation:3}}");
         a.add("zone",zone());Object activities=get(sky,"activities");call(activities,"create","070f0010",a);call(activities,"join","070f0010",p);p.teleport(new Location(Bukkit.getWorld("world"),1002.5,81,1002.5));
         JsonObject publicTask=(JsonObject)call(activities,"publicTask","070f0010");check("public_task_filtered",!publicTask.has("recoveries")&&!publicTask.has("participants")&&!publicTask.has("case_id"));
